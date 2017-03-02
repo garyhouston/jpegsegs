@@ -23,6 +23,7 @@ Example: Print the markers and segment lengths.
    	if err != nil {
    		panic(err)
    	}
+	defer in.Close()
    	reader := bufio.NewReader(in)
    	scanner, err := jseg.NewScanner(reader)
    	if err != nil {
@@ -60,6 +61,7 @@ Example: Read the segments into memory and write back to another file.
    	if err != nil {
    		panic(err)
    	}
+	defer in.Close()
    	reader := bufio.NewReader(in)
    	scanner, segments, err := jseg.ReadAll(reader)
    	if err != nil {
@@ -69,6 +71,7 @@ Example: Read the segments into memory and write back to another file.
    	if err != nil {
    		panic(err)
    	}
+	defer out.Close()
    	writer := bufio.NewWriter(out)
    	dumper, err := jseg.WriteAll(writer, segments);
    	if err != nil {
@@ -102,10 +105,12 @@ Example: Strip COM, APP and JPG segments from a JPEG file.
    	if err != nil {
    		panic(err)
    	}
+	defer in.Close()
    	out, err := os.Create(os.Args[2])
    	if err != nil {
    		panic(err)
    	}
+	defer out.Close()
    	reader := bufio.NewReader(in)
    	writer := bufio.NewWriter(out)
    	scanner, err := jseg.NewScanner(reader)
