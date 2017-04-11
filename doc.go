@@ -5,7 +5,7 @@ or modify metadata in formats such as Exif and XMP.
 
 Example programs are in the repository:
 
-jpegsegsprint prints the markers and segment lengths for a JPEG file, up to th start of scan (SOS) marker.
+jpegsegsprint prints the markers and segment lengths for a JPEG file, up to the start of scan (SOS) marker.
 
 jpegsegscopy makes an unmodified copy of a JPEG file.
 
