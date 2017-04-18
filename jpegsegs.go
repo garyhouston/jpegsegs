@@ -135,7 +135,7 @@ func readData(reader io.Reader, buf []byte) ([]byte, error) {
 func writeData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	len := len(buf) + 2
 	if len >= 2<<15 {
-		return errors.New("Buffer is too long, max 2^16 - 3")
+		return errors.New(fmt.Sprintf("Buffer is too long (%d), max 2^16 - 3 (%d)", len - 2, 2<<15 - 3))
 	}
 	lenbuf[0] = byte(len / 256)
 	lenbuf[1] = byte(len % 256)
