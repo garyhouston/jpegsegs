@@ -76,13 +76,21 @@ func (m Marker) Name() string {
 	return markerNames[m]
 }
 
+// Size of a JPEG file header.
+const HeaderSize = 2
+
+// Indicate if buffer contains a JPEG header.
+func IsJPEGHeader(buf []byte) bool {
+	return buf[0] == 0xFF && buf[1] == SOI
+}
+
 // The JPEG header is a SOI marker. Filler bytes aren't allowed.
 func readHeader(reader io.Reader, buf []byte) error {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
 		return err
 	}
-	if buf[0] != 0xFF || buf[1] != SOI {
+	if !IsJPEGHeader(buf) {
 		return errors.New("SOI marker not found")
 	}
 	return nil
@@ -135,7 +143,7 @@ func readData(reader io.Reader, buf []byte) ([]byte, error) {
 func writeData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	len := len(buf) + 2
 	if len >= 2<<15 {
-		return errors.New(fmt.Sprintf("Buffer is too long (%d), max 2^16 - 3 (%d)", len - 2, 2<<15 - 3))
+		return errors.New(fmt.Sprintf("writeData: data is too long (%d), max 2^16 - 3 (%d)", len - 2, 2<<15 - 3))
 	}
 	lenbuf[0] = byte(len / 256)
 	lenbuf[1] = byte(len % 256)
