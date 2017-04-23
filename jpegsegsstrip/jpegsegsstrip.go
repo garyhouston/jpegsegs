@@ -8,7 +8,8 @@ import (
 	"os"
 )
 
-// Make a copy of a JPEG file with all COM, APP and JPG segments removed.
+// Make a copy of a JPEG file with all COM, APP and JPG segments removed,
+// and omitting anything after the first EOI marker.
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Printf("Usage: %s infile outfile\n", os.Args[0])
@@ -49,9 +50,27 @@ func main() {
 			break
 		}
 	}
-	if err := dumper.Copy(scanner); err != nil {
-		log.Fatal(err)
+	buf := make([]byte, 10000)
+	for {
+		var marker jseg.Marker
+		buf, marker, err = jseg.ReadImageData(reader, buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = jseg.WriteImageData(writer, buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = jseg.WriteMarker(writer, marker, buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if marker == jseg.EOI {
+			break
+		}
 	}
+	// Ignore anything after EOI. May include Multi-Picture Format
+	// additional images.
 	if err := writer.Flush(); err != nil {
 		log.Fatal(err)
 	}
