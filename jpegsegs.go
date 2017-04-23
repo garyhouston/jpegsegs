@@ -143,7 +143,7 @@ func readData(reader io.Reader, buf []byte) ([]byte, error) {
 func writeData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	len := len(buf) + 2
 	if len >= 2<<15 {
-		return errors.New(fmt.Sprintf("writeData: data is too long (%d), max 2^16 - 3 (%d)", len - 2, 2<<15 - 3))
+		return errors.New(fmt.Sprintf("writeData: data is too long (%d), max 2^16 - 3 (%d)", len-2, 2<<15-3))
 	}
 	lenbuf[0] = byte(len / 256)
 	lenbuf[1] = byte(len % 256)
@@ -152,6 +152,45 @@ func writeData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	}
 	_, err := writer.Write(buf)
 	return err
+}
+
+// Read image scan data up to the next marker. 'buf' is either a
+// buffer to read into, which will be reallocated if required, or nil
+// to allocate a new buffer. Returns a buffer with the image data and
+// the following marker.
+func ReadImageData(reader io.Reader, buf []byte) ([]byte, Marker, error) {
+	pos := 0
+	ff := false
+	if buf == nil {
+		buf = make([]byte, 10000)
+	} else {
+		buf = buf[:cap(buf)]
+	}
+	for {
+		if _, err := reader.Read(buf[pos : pos+1]); err != nil {
+			return buf[:pos], 0, err
+		}
+		if ff {
+			if buf[pos] == 0 {
+				// 0xFF in data stream, delete the 0 by not
+				// incrementing pos.
+				ff = false
+				continue
+			}
+			// Marker
+			return buf[:pos-1], Marker(buf[pos]), nil
+		}
+		if buf[pos] == 0xFF {
+			ff = true
+		}
+		pos++
+		if cap(buf) < pos+1 {
+			newbuf := make([]byte, 2*cap(buf))
+			copy(newbuf, buf)
+			buf = newbuf
+		}
+	}
+
 }
 
 // Scanner represents a reader for JPEG markers and segments up to the
