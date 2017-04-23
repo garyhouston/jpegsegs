@@ -30,9 +30,30 @@ func main() {
 			log.Fatal(err)
 		}
 		if marker == jseg.SOS {
-			fmt.Printf("%s, scan data follows\n", marker.Name())
+			fmt.Println(marker.Name())
 			break
 		}
 		fmt.Printf("%s, %d bytes\n", marker.Name(), len(buf))
+	}
+	buf := make([]byte, 10000)
+	reset := 0
+	total := 0
+	for {
+		var marker jseg.Marker
+		var err error
+		buf, marker, err = jseg.ReadImageData(reader, buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		total += len(buf)
+		if marker >= jseg.RST0 && marker <= jseg.RST0+7 {
+			reset++
+		} else if marker == jseg.EOI {
+			fmt.Printf("%d bytes of scan data and %d reset markers\n", total, reset)
+			fmt.Println(marker.Name())
+			break
+		} else {
+			fmt.Printf("%s, unexpected marker\n", marker.Name())
+		}
 	}
 }
