@@ -85,7 +85,7 @@ func IsJPEGHeader(buf []byte) bool {
 }
 
 // The JPEG header is a SOI marker. Filler bytes aren't allowed.
-func readHeader(reader io.Reader, buf []byte) error {
+func ReadHeader(reader io.Reader, buf []byte) error {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
 		return err
@@ -96,7 +96,7 @@ func readHeader(reader io.Reader, buf []byte) error {
 	return nil
 }
 
-func readMarker(reader io.Reader, buf []byte) (Marker, error) {
+func ReadMarker(reader io.Reader, buf []byte) (Marker, error) {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
 		return 0, err
@@ -121,7 +121,7 @@ func readMarker(reader io.Reader, buf []byte) (Marker, error) {
 	return Marker(buf[0]), nil
 }
 
-func writeMarker(writer io.Writer, marker Marker, buf []byte) error {
+func WriteMarker(writer io.Writer, marker Marker, buf []byte) error {
 	buf = buf[0:2]
 	buf[0] = 0xFF
 	buf[1] = byte(marker)
@@ -129,7 +129,7 @@ func writeMarker(writer io.Writer, marker Marker, buf []byte) error {
 	return err
 }
 
-func readData(reader io.Reader, buf []byte) ([]byte, error) {
+func ReadData(reader io.Reader, buf []byte) ([]byte, error) {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
 		return nil, err
@@ -140,7 +140,7 @@ func readData(reader io.Reader, buf []byte) ([]byte, error) {
 	return buf, err
 }
 
-func writeData(writer io.Writer, buf []byte, lenbuf []byte) error {
+func WriteData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	len := len(buf) + 2
 	if len >= 2<<15 {
 		return errors.New(fmt.Sprintf("writeData: data is too long (%d), max 2^16 - 3 (%d)", len-2, 2<<15-3))
@@ -158,7 +158,7 @@ func writeData(writer io.Writer, buf []byte, lenbuf []byte) error {
 // buffer to read into, which will be reallocated if required, or nil
 // to allocate a new buffer. Returns a buffer with the image data and
 // the following marker.
-func ReadImageData(reader io.Reader, buf []byte) ([]byte, Marker, error) {
+func ReadImageData(reader io.ByteReader, buf []byte) ([]byte, Marker, error) {
 	pos := 0
 	ff := false
 	if buf == nil {
@@ -167,20 +167,20 @@ func ReadImageData(reader io.Reader, buf []byte) ([]byte, Marker, error) {
 		buf = buf[:cap(buf)]
 	}
 	for {
-		if _, err := reader.Read(buf[pos : pos+1]); err != nil {
+		var err error
+		if buf[pos], err = reader.ReadByte(); err != nil {
 			return buf[:pos], 0, err
 		}
 		if ff {
 			if buf[pos] == 0 {
-				// 0xFF in data stream, delete the 0 by not
-				// incrementing pos.
+				// Escaped 0xFF in data stream, delete
+				// the 0 by not incrementing pos.
 				ff = false
 				continue
 			}
 			// Marker
 			return buf[:pos-1], Marker(buf[pos]), nil
-		}
-		if buf[pos] == 0xFF {
+		} else if buf[pos] == 0xFF {
 			ff = true
 		}
 		pos++
@@ -191,6 +191,22 @@ func ReadImageData(reader io.Reader, buf []byte) ([]byte, Marker, error) {
 		}
 	}
 
+}
+
+// Write a block of image data.
+func WriteImageData(writer io.ByteWriter, buf []byte) error {
+	for pos := range buf {
+		if err := writer.WriteByte(buf[pos]); err != nil {
+			return err
+		}
+		if buf[pos] == 0xFF {
+			if err := writer.WriteByte(0); err != nil {
+				return err
+			}
+		}
+		pos++
+	}
+	return nil
 }
 
 // Scanner represents a reader for JPEG markers and segments up to the
@@ -205,7 +221,7 @@ func NewScanner(reader io.Reader) (*Scanner, error) {
 	scanner := new(Scanner)
 	scanner.reader = reader
 	scanner.buf = make([]byte, 2<<15-3)
-	if err := readHeader(reader, scanner.buf); err != nil {
+	if err := ReadHeader(reader, scanner.buf); err != nil {
 		return nil, err
 	}
 	return scanner, nil
@@ -216,14 +232,14 @@ func NewScanner(reader io.Reader) (*Scanner, error) {
 // the start of scan data. Scan doesn't work past that point. The data
 // buffer is only valid until Scan is called again.
 func (scanner *Scanner) Scan() (Marker, []byte, error) {
-	marker, err := readMarker(scanner.reader, scanner.buf)
+	marker, err := ReadMarker(scanner.reader, scanner.buf)
 	if err != nil {
 		return 0, nil, err
 	}
 	if marker == SOS {
 		return marker, nil, nil
 	}
-	segment, err := readData(scanner.reader, scanner.buf)
+	segment, err := ReadData(scanner.reader, scanner.buf)
 	return marker, segment, err
 
 }
@@ -240,7 +256,7 @@ func NewDumper(writer io.Writer) (*Dumper, error) {
 	dumper := new(Dumper)
 	dumper.writer = writer
 	dumper.buf = make([]byte, 2)
-	if err := writeMarker(writer, SOI, dumper.buf); err != nil {
+	if err := WriteMarker(writer, SOI, dumper.buf); err != nil {
 		return nil, err
 	}
 	return dumper, nil
@@ -249,13 +265,13 @@ func NewDumper(writer io.Writer) (*Dumper, error) {
 // Dump writes a marker and its data segment from buf. buf should be nil if
 // it's the SOS marker (start of scan).
 func (dumper *Dumper) Dump(marker Marker, buf []byte) error {
-	if err := writeMarker(dumper.writer, marker, dumper.buf); err != nil {
+	if err := WriteMarker(dumper.writer, marker, dumper.buf); err != nil {
 		return err
 	}
 	if buf == nil {
 		return nil
 	}
-	return writeData(dumper.writer, buf, dumper.buf)
+	return WriteData(dumper.writer, buf, dumper.buf)
 }
 
 // Copy reads all remaining data from a Scanner and lets the Dumper write it.
