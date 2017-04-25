@@ -33,6 +33,13 @@ func main() {
 			fmt.Println(marker.Name())
 			break
 		}
+		if marker == jseg.APP0+2 {
+			isMPF, _ := jseg.GetMPFHeader(buf)
+			if isMPF {
+				fmt.Printf("%s, %d bytes (MPF segment)\n", marker.Name(), len(buf))
+				continue
+			}
+		}
 		fmt.Printf("%s, %d bytes\n", marker.Name(), len(buf))
 	}
 	buf := make([]byte, 10000)
