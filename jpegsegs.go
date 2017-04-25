@@ -1,6 +1,7 @@
 package jpegsegs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -323,4 +324,28 @@ func WriteAll(writer io.Writer, segments []Segment) (*Dumper, error) {
 		}
 	}
 	return dumper, dumper.Dump(SOS, nil)
+}
+
+// MPF header, as found i a JPEG APP2 segment.
+var mpfheader = []byte("MPF\000")
+
+// Size of a MPF header.
+const MPFHeaderSize = 4
+
+// Check if a slice starts with a Multi-Picture Format (MPF) header,
+// as found in a JPEG APP2 segment.  Returns a flag and the position
+// of the next byte.
+func GetMPFHeader(buf []byte) (bool, uint32) {
+	if uint32(len(buf)) >= MPFHeaderSize && bytes.Compare(buf[:MPFHeaderSize], mpfheader) == 0 {
+		return true, MPFHeaderSize
+	} else {
+		return false, 0
+	}
+}
+
+// Put a MPF header, as for a JPEG APP2 segment, at the start of a slice,
+// returning the position of the next byte.
+func PutMPFHeader(buf []byte) uint32 {
+	copy(buf, mpfheader)
+	return MPFHeaderSize
 }
