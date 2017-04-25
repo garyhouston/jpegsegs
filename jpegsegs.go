@@ -326,7 +326,7 @@ func WriteAll(writer io.Writer, segments []Segment) (*Dumper, error) {
 	return dumper, dumper.Dump(SOS, nil)
 }
 
-// MPF header, as found i a JPEG APP2 segment.
+// MPF header, as found in a JPEG APP2 segment.
 var mpfheader = []byte("MPF\000")
 
 // Size of a MPF header.
