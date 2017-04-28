@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	tiff "github.com/garyhouston/tiff66"
 	"io"
 )
 
@@ -348,4 +349,82 @@ func GetMPFHeader(buf []byte) (bool, uint32) {
 func PutMPFHeader(buf []byte) uint32 {
 	copy(buf, mpfheader)
 	return MPFHeaderSize
+}
+
+// Read a TIFF structure with MPF data. 'buf' must start with the first byte
+// of the TIFF header.
+func GetMPFTree(buf []byte) (*tiff.IFDNode, error) {
+	valid, order, ifdpos := tiff.GetHeader(buf)
+	if !valid {
+		return nil, errors.New("GetMPFTree: Invalid Tiff header")
+	}
+	node, err := tiff.GetIFDTree(buf, order, ifdpos, tiff.MPFIndexSpace)
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+// Pack MPF data into a slice in TIFF format. The slice should start
+// with the first byte following the MPF header. Returns the position
+// following the last byte used.
+func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
+	tiff.PutHeader(buf, mpf.Order, tiff.HeaderSize)
+	return mpf.PutIFDTree(buf, tiff.HeaderSize)
+}
+
+// Tags in the MPFIndex IFD.
+const (
+	MPFVersion        = 0xB000
+	MPFNumberOfImages = 0xB001
+	MPFEntry          = 0xB002
+	MPFImageUIDList   = 0xB003
+	MPFTotalFrames    = 0xB004
+)
+
+// Mapping from MPFIndex tags to strings.
+var MPFIndexTagNames = map[tiff.Tag]string{
+	MPFVersion:        "MPFVersion",
+	MPFNumberOfImages: "MPFNumberOfImages",
+	MPFEntry:          "MPFEntry",
+	MPFImageUIDList:   "MPFImageUIDList",
+	MPFTotalFrames:    "MPFTotalFrames",
+}
+
+// Tags in the MPFAttribute IFD.
+const (
+	// MPFVersion 0xB000 as above
+	MPFIndividualImageNumber       = 0xB101
+	MPFPanoramaScanningOrientation = 0xB201
+	MPFPanoramaHorizontalOverlap   = 0xB202
+	MPFPanoramaVerticalOverlap     = 0xB203
+	MPFBaseViewpointNumber         = 0xB204
+	MPFConvergenceAngle            = 0xB205
+	MPFBaselineLength              = 0xB206
+	MPFDivergenceAngle             = 0xB207
+	MPFHorzontalAxisDistance       = 0xB208
+	MPFVerticalAxisDistance        = 0xB209
+	MPFCollimationAxisDistance     = 0xB20A
+	MPFYawAngle                    = 0xB20B
+	MPFPitchAngle                  = 0xB20C
+	MPFRollAngle                   = 0xB20D
+)
+
+// Mapping from MPFAttribute tags to strings.
+var MPFAttributeTagNames = map[tiff.Tag]string{
+	MPFVersion:                     "MPFVersion",
+	MPFIndividualImageNumber:       "MPFIndividualImageNumber",
+	MPFPanoramaScanningOrientation: "MPFPanoramaScanningOrientation",
+	MPFPanoramaHorizontalOverlap:   "MPFPanoramaHorizontalOverlap",
+	MPFPanoramaVerticalOverlap:     "MPFPanoramaVerticalOverlap",
+	MPFBaseViewpointNumber:         "MPFBaseViewpointNumber",
+	MPFConvergenceAngle:            "MPFConvergenceAngle",
+	MPFBaselineLength:              "MPFBaselineLength",
+	MPFDivergenceAngle:             "MPFDivergenceAngle",
+	MPFHorzontalAxisDistance:       "MPFHorzontalAxisDistance",
+	MPFVerticalAxisDistance:        "MPFVerticalAxisDistance",
+	MPFCollimationAxisDistance:     "MPFCollimationAxisDistance",
+	MPFYawAngle:                    "MPFYawAngle",
+	MPFPitchAngle:                  "MPFPitchAngle",
+	MPFRollAngle:                   "MPFRollAngle",
 }
