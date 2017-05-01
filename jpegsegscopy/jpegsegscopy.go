@@ -20,7 +20,7 @@ func main() {
 	}
 	defer in.Close()
 	reader := bufio.NewReader(in)
-	scanner, segments, err := jseg.ReadAll(reader)
+	scanner, segments, err := jseg.ReadSegments(reader)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func main() {
 	}
 	defer out.Close()
 	writer := bufio.NewWriter(out)
-	dumper, err := jseg.WriteAll(writer, segments)
+	dumper, err := jseg.WriteSegments(writer, segments)
 	if err != nil {
 		log.Fatal(err)
 	}
