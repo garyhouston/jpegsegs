@@ -288,10 +288,10 @@ type Segment struct {
 	Data   []byte
 }
 
-// ReadAll reads a JPEG stream up to and including the SOS marker and
+// ReadSegments reads a JPEG stream up to and including the SOS marker and
 // returns a slice with marker and segment data. The SOS marker isn't
 // included in the slice.
-func ReadAll(reader io.Reader) (*Scanner, []Segment, error) {
+func ReadSegments(reader io.Reader) (*Scanner, []Segment, error) {
 	var segments = make([]Segment, 0, 20)
 	scanner, err := NewScanner(reader)
 	if err != nil {
@@ -311,10 +311,10 @@ func ReadAll(reader io.Reader) (*Scanner, []Segment, error) {
 	}
 }
 
-// WriteAll writes a JPEG stream up to and including the SOS marker, given
-// a slice with marker and segment data. The SOS marker is written
-// automatically, it should not be included in the slice.
-func WriteAll(writer io.Writer, segments []Segment) (*Dumper, error) {
+// WriteSegments writes a JPEG stream up to and including the SOS
+// marker, given a slice with marker and segment data. The SOS marker
+// is written automatically, it should not be included in the slice.
+func WriteSegments(writer io.Writer, segments []Segment) (*Dumper, error) {
 	dumper, err := NewDumper(writer)
 	if err != nil {
 		return nil, err
