@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	jseg "github.com/garyhouston/jpegsegs"
 	"log"
 	"os"
@@ -20,7 +21,7 @@ func main() {
 	}
 	defer in.Close()
 	reader := bufio.NewReader(in)
-	scanner, segments, err := jseg.ReadSegments(reader)
+	segments, err := jseg.ReadSegments(reader)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -30,8 +31,7 @@ func main() {
 	}
 	defer out.Close()
 	writer := bufio.NewWriter(out)
-	dumper, err := jseg.WriteSegments(writer, segments)
-	if err != nil {
+	if err := jseg.WriteSegments(writer, segments); err != nil {
 		log.Fatal(err)
 	}
 	buf := make([]byte, 10000)
@@ -56,7 +56,7 @@ func main() {
 	}
 	// There may be more images after the EOI marker if the file is
 	// using Multi-Picture Format. Just copy it for now.
-	if err := dumper.Copy(scanner); err != nil {
+	if _, err := io.Copy(writer, reader); err != nil {
 		log.Fatal(err)
 	}
 	if err := writer.Flush(); err != nil {
