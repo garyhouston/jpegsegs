@@ -229,17 +229,13 @@ func NewScanner(reader io.Reader) (*Scanner, error) {
 	return scanner, nil
 }
 
-// Scan reads the next JPEG marker and its data segment if it has one.
-// All markers are expected to have data except for SOS, which indicates
-// the start of scan data. Scan doesn't work past that point. The data
-// buffer is only valid until Scan is called again.
+// Scan reads the next JPEG marker and its data segment. It doens't
+// work past the SOS segment. The data buffer is only valid until Scan
+// is called again.
 func (scanner *Scanner) Scan() (Marker, []byte, error) {
 	marker, err := ReadMarker(scanner.reader, scanner.buf)
 	if err != nil {
 		return 0, nil, err
-	}
-	if marker == SOS {
-		return marker, nil, nil
 	}
 	segment, err := ReadData(scanner.reader, scanner.buf)
 	return marker, segment, err
@@ -247,7 +243,7 @@ func (scanner *Scanner) Scan() (Marker, []byte, error) {
 }
 
 // Dumper represents a writer for JPEG markers and segments up to the SOS
-// marker.
+// segment.
 type Dumper struct {
 	writer io.Writer
 	buf    []byte // buffer of size 2
@@ -264,14 +260,10 @@ func NewDumper(writer io.Writer) (*Dumper, error) {
 	return dumper, nil
 }
 
-// Dump writes a marker and its data segment from buf. buf should be nil if
-// it's the SOS marker (start of scan).
+// Dump writes a marker and its data segment from buf.
 func (dumper *Dumper) Dump(marker Marker, buf []byte) error {
 	if err := WriteMarker(dumper.writer, marker, dumper.buf); err != nil {
 		return err
-	}
-	if buf == nil {
-		return nil
 	}
 	return WriteData(dumper.writer, buf, dumper.buf)
 }
@@ -283,8 +275,7 @@ type Segment struct {
 }
 
 // ReadSegments reads a JPEG stream up to and including the SOS marker and
-// returns a slice with marker and segment data. The SOS marker isn't
-// included in the slice.
+// returns a slice with marker and segment data.
 func ReadSegments(reader io.Reader) ([]Segment, error) {
 	var segments = make([]Segment, 0, 20)
 	scanner, err := NewScanner(reader)
@@ -296,18 +287,16 @@ func ReadSegments(reader io.Reader) ([]Segment, error) {
 		if err != nil {
 			return segments, err
 		}
-		if marker == SOS {
-			return segments, nil
-		}
 		cpy := make([]byte, len(buf))
 		copy(cpy, buf)
 		segments = append(segments, Segment{marker, cpy})
+		if marker == SOS {
+			return segments, nil
+		}
 	}
 }
 
-// WriteSegments writes a JPEG stream up to and including the SOS
-// marker, given a slice with marker and segment data. The SOS marker
-// is written automatically, it should not be included in the slice.
+// WriteSegments writes the given JPEG markers and segments to a stream.
 func WriteSegments(writer io.Writer, segments []Segment) error {
 	dumper, err := NewDumper(writer)
 	if err != nil {
@@ -318,7 +307,7 @@ func WriteSegments(writer io.Writer, segments []Segment) error {
 			return err
 		}
 	}
-	return dumper.Dump(SOS, nil)
+	return nil
 }
 
 // MPF header, as found in a JPEG APP2 segment.
