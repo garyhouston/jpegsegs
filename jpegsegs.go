@@ -276,12 +276,6 @@ func (dumper *Dumper) Dump(marker Marker, buf []byte) error {
 	return WriteData(dumper.writer, buf, dumper.buf)
 }
 
-// Copy reads all remaining data from a Scanner and lets the Dumper write it.
-func (dumper *Dumper) Copy(scanner *Scanner) error {
-	_, err := io.Copy(dumper.writer, scanner.reader)
-	return err
-}
-
 // Segment represents a marker and its segment data.
 type Segment struct {
 	Marker Marker
@@ -291,19 +285,19 @@ type Segment struct {
 // ReadSegments reads a JPEG stream up to and including the SOS marker and
 // returns a slice with marker and segment data. The SOS marker isn't
 // included in the slice.
-func ReadSegments(reader io.Reader) (*Scanner, []Segment, error) {
+func ReadSegments(reader io.Reader) ([]Segment, error) {
 	var segments = make([]Segment, 0, 20)
 	scanner, err := NewScanner(reader)
 	if err != nil {
-		return nil, segments, err
+		return segments, err
 	}
 	for {
 		marker, buf, err := scanner.Scan()
 		if err != nil {
-			return scanner, segments, err
+			return segments, err
 		}
 		if marker == SOS {
-			return scanner, segments, nil
+			return segments, nil
 		}
 		cpy := make([]byte, len(buf))
 		copy(cpy, buf)
@@ -314,17 +308,17 @@ func ReadSegments(reader io.Reader) (*Scanner, []Segment, error) {
 // WriteSegments writes a JPEG stream up to and including the SOS
 // marker, given a slice with marker and segment data. The SOS marker
 // is written automatically, it should not be included in the slice.
-func WriteSegments(writer io.Writer, segments []Segment) (*Dumper, error) {
+func WriteSegments(writer io.Writer, segments []Segment) error {
 	dumper, err := NewDumper(writer)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for i := range segments {
 		if err := dumper.Dump(segments[i].Marker, segments[i].Data); err != nil {
-			return dumper, err
+			return err
 		}
 	}
-	return dumper, dumper.Dump(SOS, nil)
+	return dumper.Dump(SOS, nil)
 }
 
 // MPF header, as found in a JPEG APP2 segment.
