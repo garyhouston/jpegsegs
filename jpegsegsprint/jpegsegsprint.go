@@ -29,10 +29,6 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if marker == jseg.SOS {
-			fmt.Println(marker.Name())
-			break
-		}
 		if marker == jseg.APP0+2 {
 			isMPF, _ := jseg.GetMPFHeader(buf)
 			if isMPF {
@@ -41,6 +37,9 @@ func main() {
 			}
 		}
 		fmt.Printf("%s, %d bytes\n", marker.Name(), len(buf))
+		if marker == jseg.SOS {
+			break
+		}
 	}
 	buf := make([]byte, 10000)
 	reset := 0
