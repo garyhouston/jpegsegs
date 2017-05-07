@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	jseg "github.com/garyhouston/jpegsegs"
 	"log"
@@ -15,18 +14,16 @@ func main() {
 		fmt.Printf("Usage: %s infile outfile\n", os.Args[0])
 		return
 	}
-	in, err := os.Open(os.Args[1])
+	reader, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer in.Close()
-	out, err := os.Create(os.Args[2])
+	defer reader.Close()
+	writer, err := os.Create(os.Args[2])
 	if err != nil {
 		log.Fatal(err)		
 	}
-	defer out.Close()
-	reader := bufio.NewReader(in)
-	writer := bufio.NewWriter(out)
+	defer writer.Close()
 	scanner, err := jseg.NewScanner(reader)
 	if err != nil {
 		log.Fatal(err)
@@ -46,33 +43,10 @@ func main() {
 		if err := dumper.Dump(marker, buf); err != nil {
 			log.Fatal(err)
 		}
-		if marker == jseg.SOS {
-			break
-		}
-	}
-	buf := make([]byte, 10000)
-	for {
-		var marker jseg.Marker
-		buf, marker, err = jseg.ReadImageData(reader, buf)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = jseg.WriteImageData(writer, buf)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = jseg.WriteMarker(writer, marker, buf)
-		if err != nil {
-			log.Fatal(err)
-		}
 		if marker == jseg.EOI {
+			// Ignore anything after EOI. May include Multi-Picture Format
+			// additional images.
 			break
 		}
 	}
-	// Ignore anything after EOI. May include Multi-Picture Format
-	// additional images.
-	if err := writer.Flush(); err != nil {
-		log.Fatal(err)
-	}
-
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	jseg "github.com/garyhouston/jpegsegs"
@@ -15,51 +14,40 @@ func main() {
 		fmt.Printf("Usage: %s infile outfile\n", os.Args[0])
 		return
 	}
-	in, err := os.Open(os.Args[1])
+	reader, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer in.Close()
-	reader := bufio.NewReader(in)
-	segments, err := jseg.ReadSegments(reader)
+	defer reader.Close()
+	scanner, err := jseg.NewScanner(reader)
 	if err != nil {
 		log.Fatal(err)
 	}
-	out, err := os.Create(os.Args[2])
+	writer, err := os.Create(os.Args[2])
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer out.Close()
-	writer := bufio.NewWriter(out)
-	if err := jseg.WriteSegments(writer, segments); err != nil {
+	defer writer.Close()
+	dumper, err := jseg.NewDumper(writer)
+	if err != nil {
 		log.Fatal(err)
 	}
-	buf := make([]byte, 10000)
 	for {
-		var marker jseg.Marker
-		buf, marker, err = jseg.ReadImageData(reader, buf)
+		marker, buf, err := scanner.Scan()
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = jseg.WriteImageData(writer, buf)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = jseg.WriteMarker(writer, marker, buf)
-		if err != nil {
+		if err := dumper.Dump(marker, buf); err != nil {
 			log.Fatal(err)
 		}
 		if marker == jseg.EOI {
 			break
 		}
-
+		
 	}
 	// There may be more images after the EOI marker if the file is
 	// using Multi-Picture Format. Just copy it for now.
 	if _, err := io.Copy(writer, reader); err != nil {
-		log.Fatal(err)
-	}
-	if err := writer.Flush(); err != nil {
 		log.Fatal(err)
 	}
 }
