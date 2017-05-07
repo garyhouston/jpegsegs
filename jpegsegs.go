@@ -78,15 +78,15 @@ func (m Marker) Name() string {
 	return markerNames[m]
 }
 
-// Size of a JPEG file header.
+// HeaderSize is the size of a JPEG file header.
 const HeaderSize = 2
 
-// Indicate if buffer contains a JPEG header.
+// IsJPEGHeader indicates if buffer contains a JPEG header.
 func IsJPEGHeader(buf []byte) bool {
 	return buf[0] == 0xFF && buf[1] == SOI
 }
 
-// The JPEG header is a SOI marker. Filler bytes aren't allowed.
+// ReadHeader reads the JPEG header (SOI marker). Filler bytes aren't allowed.
 func ReadHeader(reader io.Reader, buf []byte) error {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
@@ -98,6 +98,7 @@ func ReadHeader(reader io.Reader, buf []byte) error {
 	return nil
 }
 
+// ReadMarker reads a JPEG marker: a pair of bytes starting with 0xFF.
 func ReadMarker(reader io.Reader, buf []byte) (Marker, error) {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
@@ -123,6 +124,7 @@ func ReadMarker(reader io.Reader, buf []byte) (Marker, error) {
 	return Marker(buf[0]), nil
 }
 
+// WriteMarker writes a JPEG marker: a pair of bytes starting with 0xFF.
 func WriteMarker(writer io.Writer, marker Marker, buf []byte) error {
 	buf = buf[0:2]
 	buf[0] = 0xFF
@@ -131,6 +133,7 @@ func WriteMarker(writer io.Writer, marker Marker, buf []byte) error {
 	return err
 }
 
+// ReadData writes a JPEG data segment, which follows a marker.
 func ReadData(reader io.Reader, buf []byte) ([]byte, error) {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
@@ -142,6 +145,7 @@ func ReadData(reader io.Reader, buf []byte) ([]byte, error) {
 	return buf, err
 }
 
+// WriteData writes a JPEG data segment, which follows a marker.
 func WriteData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	len := len(buf) + 2
 	if len >= 2<<15 {
@@ -156,70 +160,118 @@ func WriteData(writer io.Writer, buf []byte, lenbuf []byte) error {
 	return err
 }
 
-// Read image scan data up to the next marker. 'buf' is either a
-// buffer to read into, which will be reallocated if required, or nil
-// to allocate a new buffer. Returns a buffer with the image data and
-// the following marker.
-func ReadImageData(reader io.ByteReader, buf []byte) ([]byte, Marker, error) {
-	pos := 0
-	ff := false
+// Check that a buffer is large enough and reallocate if needed.
+func checkbuf(buf []byte, reqsize uint32) []byte {
+	current := uint32(cap(buf))
+	if current < reqsize {
+		newsize := current * 2
+		if newsize < reqsize {
+			newsize = reqsize
+		}
+		newbuf := make([]byte, newsize)
+		copy(newbuf, buf)
+		buf = newbuf
+	}
+	return buf
+}
+
+// ReadImageData reads image scan data up to the next marker. 'buf' is
+// either a buffer to read into, which will be reallocated if
+// required, or nil to allocate a new buffer. Returns a buffer with
+// the image data.
+func ReadImageData(reader io.ReadSeeker, buf []byte) ([]byte, error) {
+	// Image data could be very large. Reading one byte at a time
+	// would be slow. Can't take a buffered reader as a paramater,
+	// since two bytes of undo are needed to drop the marker that
+	// terminates the segment.
+	blocksize := uint32(10000)
 	if buf == nil {
-		buf = make([]byte, 10000)
+		buf = make([]byte, blocksize)
 	} else {
 		buf = buf[:cap(buf)]
 	}
-	for {
-		var err error
-		if buf[pos], err = reader.ReadByte(); err != nil {
-			return buf[:pos], 0, err
-		}
-		if ff {
-			if buf[pos] == 0 {
-				// Escaped 0xFF in data stream, delete
-				// the 0 by not incrementing pos.
-				ff = false
-				continue
-			}
-			// Marker
-			return buf[:pos-1], Marker(buf[pos]), nil
-		} else if buf[pos] == 0xFF {
-			ff = true
-		}
-		pos++
-		if cap(buf) < pos+1 {
-			newbuf := make([]byte, 2*cap(buf))
-			copy(newbuf, buf)
-			buf = newbuf
-		}
+	bufpos := uint32(0)
+	readpos, err := reader.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
 	}
-
+	skipped := uint32(0)
+NEXTBLOCK:
+	for {
+		if bufpos + blocksize < bufpos {
+			return nil, errors.New("Read ~4GB image data without finding a terminating marker")
+		}
+		buf = checkbuf(buf, bufpos + blocksize)
+		count, err := reader.Read(buf[bufpos:bufpos+blocksize])
+		if err != nil {
+			return nil, err
+		}
+		end := bufpos + uint32(count)
+	NEXTINDEX:
+		for {
+			ffpos := bytes.IndexByte(buf[bufpos:end], 0xFF)
+			if ffpos == -1 {
+				bufpos = end
+				continue NEXTBLOCK
+			}
+			bufpos += uint32(ffpos)
+			if bufpos == end - 1 {
+				// 2nd byte is in the next block.
+				if _, err := reader.Seek(-1, io.SeekCurrent); err != nil {
+					return nil, err
+				}
+				continue NEXTBLOCK
+			}
+			if buf[bufpos+1] == 0 {
+				// Escaped 0xFF in data stream, delete
+				// the 0.
+				bufpos++
+				copy(buf[bufpos:], buf[bufpos+1:end])
+				skipped++
+				end--
+				continue NEXTINDEX
+			}
+			// Found a Marker.
+			if _, err := reader.Seek(readpos + int64(bufpos + skipped), io.SeekStart); err != nil {
+				return nil, err
+			}
+			return buf[:bufpos], nil
+		}
+	
+	}
 }
 
-// Write a block of image data.
-func WriteImageData(writer io.ByteWriter, buf []byte) error {
-	for pos := range buf {
-		if err := writer.WriteByte(buf[pos]); err != nil {
+// WriteImageData writes a block of image data.
+func WriteImageData(writer io.WriteSeeker, buf []byte) error {
+	bufpos := 0
+	tmp := []byte{0}
+	for {
+		ffpos := bytes.IndexByte(buf[bufpos:], 0xFF)
+		if ffpos == -1 {
+			_, err := writer.Write(buf[bufpos:])
 			return err
 		}
-		if buf[pos] == 0xFF {
-			if err := writer.WriteByte(0); err != nil {
-				return err
-			}
+		if _, err := writer.Write(buf[bufpos:bufpos+ffpos+1]); err != nil {
+			return err
 		}
-		pos++
+		// Escape a 0xFF byte by appending a 0 byte.
+		if _, err := writer.Write(tmp); err != nil {
+			return err
+		}
+		bufpos += ffpos + 1
 	}
-	return nil
 }
 
 // Scanner represents a reader for JPEG markers and segments up to the
 // SOS marker.
 type Scanner struct {
-	reader io.Reader
+	reader io.ReadSeeker
 	buf    []byte // buffer of size 2^16 - 3
+	imageData bool  // true when expecting image data: after an SOS segment or RST marker.
 }
 
 // NewScanner creates a new Scanner and checks the JPEG header.
-func NewScanner(reader io.Reader) (*Scanner, error) {
+func NewScanner(reader io.ReadSeeker) (*Scanner, error) {
 	scanner := new(Scanner)
 	scanner.reader = reader
 	scanner.buf = make([]byte, 2<<15-3)
@@ -229,28 +281,44 @@ func NewScanner(reader io.Reader) (*Scanner, error) {
 	return scanner, nil
 }
 
-// Scan reads the next JPEG marker and its data segment. It doens't
-// work past the SOS segment. The data buffer is only valid until Scan
-// is called again.
+// Scan reads the next JPEG data segment. Returns a zero Marker when
+// image scan data is returned. Returns a nil slice if the marker as
+// no segment data (RST0-7, EOI or TEM.)  The data buffer is only
+// valid until Scan is called again.
 func (scanner *Scanner) Scan() (Marker, []byte, error) {
-	marker, err := ReadMarker(scanner.reader, scanner.buf)
-	if err != nil {
-		return 0, nil, err
+	if scanner.imageData {
+		var err error
+		scanner.buf, err = ReadImageData(scanner.reader, scanner.buf)
+		if err != nil {
+			return 0, nil, err
+		}
+		if len(scanner.buf) == 0 {
+			return 0, nil, errors.New("Expecting image data")
+		}
+		scanner.imageData = false
+		return 0, scanner.buf, nil
+	} else {
+		marker, err := ReadMarker(scanner.reader, scanner.buf)
+		if err != nil {
+			return 0, nil, err
+		}
+		scanner.imageData = (marker == SOS || marker >= RST0  && marker <= RST0+7)
+		if marker == EOI || marker == TEM || (marker >= RST0 && marker <= RST0+7) {
+			return marker, nil, nil
+		}
+		segment, err := ReadData(scanner.reader, scanner.buf)
+		return marker, segment, err
 	}
-	segment, err := ReadData(scanner.reader, scanner.buf)
-	return marker, segment, err
-
 }
 
-// Dumper represents a writer for JPEG markers and segments up to the SOS
-// segment.
+// Dumper represents a writer for JPEG markers and segments.
 type Dumper struct {
-	writer io.Writer
+	writer io.WriteSeeker
 	buf    []byte // buffer of size 2
 }
 
 // NewDumper creates a new Dumper and writes the JPEG header.
-func NewDumper(writer io.Writer) (*Dumper, error) {
+func NewDumper(writer io.WriteSeeker) (*Dumper, error) {
 	dumper := new(Dumper)
 	dumper.writer = writer
 	dumper.buf = make([]byte, 2)
@@ -260,12 +328,20 @@ func NewDumper(writer io.Writer) (*Dumper, error) {
 	return dumper, nil
 }
 
-// Dump writes a marker and its data segment from buf.
+// Dump writes a marker and its data segment.
 func (dumper *Dumper) Dump(marker Marker, buf []byte) error {
+	if marker == 0 {
+		return WriteImageData(dumper.writer, buf)
+	}
 	if err := WriteMarker(dumper.writer, marker, dumper.buf); err != nil {
 		return err
 	}
-	return WriteData(dumper.writer, buf, dumper.buf)
+	if buf != nil {
+		if err := WriteData(dumper.writer, buf, dumper.buf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Segment represents a marker and its segment data.
@@ -276,7 +352,7 @@ type Segment struct {
 
 // ReadSegments reads a JPEG stream up to and including the SOS marker and
 // returns a slice with marker and segment data.
-func ReadSegments(reader io.Reader) ([]Segment, error) {
+func ReadSegments(reader io.ReadSeeker) ([]Segment, error) {
 	var segments = make([]Segment, 0, 20)
 	scanner, err := NewScanner(reader)
 	if err != nil {
@@ -297,7 +373,7 @@ func ReadSegments(reader io.Reader) ([]Segment, error) {
 }
 
 // WriteSegments writes the given JPEG markers and segments to a stream.
-func WriteSegments(writer io.Writer, segments []Segment) error {
+func WriteSegments(writer io.WriteSeeker, segments []Segment) error {
 	dumper, err := NewDumper(writer)
 	if err != nil {
 		return err
@@ -313,12 +389,12 @@ func WriteSegments(writer io.Writer, segments []Segment) error {
 // MPF header, as found in a JPEG APP2 segment.
 var mpfheader = []byte("MPF\000")
 
-// Size of a MPF header.
+// MPFHeaderSize is the size of a MPF (Multi-Picture Format) header.
 const MPFHeaderSize = 4
 
-// Check if a slice starts with a Multi-Picture Format (MPF) header,
-// as found in a JPEG APP2 segment.  Returns a flag and the position
-// of the next byte.
+// GetMPFHeader checks if a slice starts with a Multi-Picture Format
+// (MPF) header, as found in a JPEG APP2 segment.  Returns a flag and
+// the position of the next byte.
 func GetMPFHeader(buf []byte) (bool, uint32) {
 	if uint32(len(buf)) >= MPFHeaderSize && bytes.Compare(buf[:MPFHeaderSize], mpfheader) == 0 {
 		return true, MPFHeaderSize
@@ -327,15 +403,15 @@ func GetMPFHeader(buf []byte) (bool, uint32) {
 	}
 }
 
-// Put a MPF header, as for a JPEG APP2 segment, at the start of a slice,
-// returning the position of the next byte.
+// PutMPFHeader puts a MPF header at the start of a slice, returning
+// the position of the next byte.
 func PutMPFHeader(buf []byte) uint32 {
 	copy(buf, mpfheader)
 	return MPFHeaderSize
 }
 
-// Read a TIFF structure with MPF data. 'buf' must start with the first byte
-// of the TIFF header.
+// GetMPFTree reads a TIFF structure with MPF data. 'buf' must start
+// with the first byte of the TIFF header.
 func GetMPFTree(buf []byte) (*tiff.IFDNode, error) {
 	valid, order, ifdpos := tiff.GetHeader(buf)
 	if !valid {
@@ -348,9 +424,9 @@ func GetMPFTree(buf []byte) (*tiff.IFDNode, error) {
 	return node, nil
 }
 
-// Pack MPF data into a slice in TIFF format. The slice should start
-// with the first byte following the MPF header. Returns the position
-// following the last byte used.
+// MputMPFTree packs MPF data into a slice in TIFF format. The slice
+// should start with the first byte following the MPF header. Returns
+// the position following the last byte used.
 func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
 	tiff.PutHeader(buf, mpf.Order, tiff.HeaderSize)
 	return mpf.PutIFDTree(buf, tiff.HeaderSize)
@@ -365,7 +441,7 @@ const (
 	MPFTotalFrames    = 0xB004
 )
 
-// Mapping from MPFIndex tags to strings.
+// MPFIndexTagNames is a mapping from MPFIndex tags to strings.
 var MPFIndexTagNames = map[tiff.Tag]string{
 	MPFVersion:        "MPFVersion",
 	MPFNumberOfImages: "MPFNumberOfImages",
@@ -393,7 +469,7 @@ const (
 	MPFRollAngle                   = 0xB20D
 )
 
-// Mapping from MPFAttribute tags to strings.
+// MPFAttributeTagNames is a mapping from MPFAttribute tags to strings.
 var MPFAttributeTagNames = map[tiff.Tag]string{
 	MPFVersion:                     "MPFVersion",
 	MPFIndividualImageNumber:       "MPFIndividualImageNumber",
