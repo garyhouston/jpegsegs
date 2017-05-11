@@ -3,7 +3,6 @@ package main
 // Print JPEG markers and segment lengths.
 
 import (
-	"errors"
 	"fmt"
 	jseg "github.com/garyhouston/jpegsegs"
 	tiff "github.com/garyhouston/tiff66"
@@ -12,22 +11,44 @@ import (
 	"os"
 )
 
-// Process a single image. A file using the MPF extensions can contain
-// multiple images. Returns the MPF segment and MPF offset, if found.
-func scanImage(reader io.ReadSeeker) ([]byte, uint32, error) {
-	var mpfSegment []byte
-	mpfOffset := uint32(0)
+// Unpack MPF from TIFF. If there's an index of images with offsets,
+// convert the offsets to file positions and return them.
+func extractOffsets(reader io.Seeker, buf []byte, tiffOffset uint32) ([]uint32, error) {
+	mpfTree, err := jseg.GetMPFTree(buf[tiffOffset:])
+	if err != nil {
+		return nil, err
+	}
+	if mpfTree.Space == tiff.MPFIndexSpace {
+		// MPF offsets are relative to the start of the MPF
+		// header, which is 4 bytes past the start of buf.
+		// The current position of the reader is one byte past
+		// the data read into buf.
+		pos, err := reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return nil, err
+		}
+		mpfOffset := uint32(pos) - uint32(len(buf)-4)
+		return jseg.MPFImageOffsets(mpfTree, mpfOffset)
+	}
+	return nil, nil
+}
+
+// Process a single image. A file using the MPF extension can contain
+// multiple images: returns the image offsets relative to the start of
+// the file if found.
+func scanImage(reader io.ReadSeeker) ([]uint32, error) {
 	scanner, err := jseg.NewScanner(reader)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	fmt.Println("SOI")
 	dataCount := uint32(0)
 	resetCount := uint32(0)
+	var offsets []uint32
 	for {
 		marker, buf, err := scanner.Scan()
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		if marker == 0 {
 			dataCount += uint32(len(buf))
@@ -47,7 +68,7 @@ func scanImage(reader io.ReadSeeker) ([]byte, uint32, error) {
 		if buf == nil {
 			fmt.Println(marker.Name())
 			if marker == jseg.EOI {
-				return mpfSegment, mpfOffset, nil
+				return offsets, nil
 			}
 			continue
 		}
@@ -55,16 +76,10 @@ func scanImage(reader io.ReadSeeker) ([]byte, uint32, error) {
 			isMPF, next := jseg.GetMPFHeader(buf)
 			if isMPF {
 				fmt.Printf("%s, %d bytes (MPF segment)\n", marker.Name(), len(buf))
-				mpfSegment = make([]byte, len(buf[next:]))
-				copy(mpfSegment, buf[next:])
-				// MPF offsets are relative to the start of the
-				// MPF header, which is 4 bytes past the start
-				// of buf.
-				pos, err := reader.Seek(0, io.SeekCurrent)
+				offsets, err = extractOffsets(reader, buf, next)
 				if err != nil {
-					return nil, 0, err
+					return nil, err
 				}
-				mpfOffset = uint32(pos) - uint32(len(buf)-4)
 				continue
 			}
 		}
@@ -72,38 +87,15 @@ func scanImage(reader io.ReadSeeker) ([]byte, uint32, error) {
 	}
 }
 
-func scanMPFImages(reader io.ReadSeeker, mpfSegment []byte, mpfOffset uint32) error {
-	mpfTree, err := jseg.GetMPFTree(mpfSegment)
-	if err != nil {
-		return err
-	}
-	if mpfTree.Space != tiff.MPFIndexSpace {
-		return errors.New("MPF segment doesn't contain Index")
-	}
-	order := mpfTree.Order
-	count := uint32(0)
-	sizes := []uint32(nil)
-	offsets := []uint32(nil)
-	for _, f := range mpfTree.Fields {
-		switch f.Tag {
-		case jseg.MPFNumberOfImages:
-			count = f.Long(0, order)
-			sizes = make([]uint32, count)
-			offsets = make([]uint32, count)
-		case jseg.MPFEntry:
-			for i := uint32(0); i < count; i++ {
-				sizes[i] = f.Long(i*4+1, order)
-				offsets[i] = f.Long(i*4+2, order)
-			}
-		}
-	}
+func scanMPFImages(reader io.ReadSeeker, offsets []uint32) error {
+	count := uint32(len(offsets))
 	for i := uint32(0); i < count; i++ {
 		if offsets[i] > 0 {
-			fmt.Printf("MPF image %d at offset %d, size %d\n", i+1, mpfOffset+offsets[i], sizes[i])
-			if _, err = reader.Seek(int64(offsets[i]+mpfOffset), io.SeekStart); err != nil {
+			fmt.Printf("MPF image at offset %d\n", offsets[i])
+			if _, err := reader.Seek(int64(offsets[i]), io.SeekStart); err != nil {
 				return err
 			}
-			if _, _, err := scanImage(reader); err != nil {
+			if _, err := scanImage(reader); err != nil {
 				return err
 			}
 		}
@@ -121,12 +113,12 @@ func main() {
 		log.Fatal(err)
 	}
 	defer reader.Close()
-	mpfSegment, mpfOffset, err := scanImage(reader)
+	offsets, err := scanImage(reader)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if mpfSegment != nil {
-		err = scanMPFImages(reader, mpfSegment, mpfOffset)
+	if len(offsets) > 0 {
+		err = scanMPFImages(reader, offsets)
 		if err != nil {
 			log.Fatal(err)
 		}
