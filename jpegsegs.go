@@ -198,11 +198,11 @@ func ReadImageData(reader io.ReadSeeker, buf []byte) ([]byte, error) {
 	skipped := uint32(0)
 NEXTBLOCK:
 	for {
-		if bufpos + blocksize < bufpos {
+		if bufpos+blocksize < bufpos {
 			return nil, errors.New("Read ~4GB image data without finding a terminating marker")
 		}
-		buf = checkbuf(buf, bufpos + blocksize)
-		count, err := reader.Read(buf[bufpos:bufpos+blocksize])
+		buf = checkbuf(buf, bufpos+blocksize)
+		count, err := reader.Read(buf[bufpos : bufpos+blocksize])
 		if err != nil {
 			return nil, err
 		}
@@ -215,7 +215,7 @@ NEXTBLOCK:
 				continue NEXTBLOCK
 			}
 			bufpos += uint32(ffpos)
-			if bufpos == end - 1 {
+			if bufpos == end-1 {
 				// 2nd byte is in the next block.
 				if _, err := reader.Seek(-1, io.SeekCurrent); err != nil {
 					return nil, err
@@ -232,12 +232,12 @@ NEXTBLOCK:
 				continue NEXTINDEX
 			}
 			// Found a Marker.
-			if _, err := reader.Seek(readpos + int64(bufpos + skipped), io.SeekStart); err != nil {
+			if _, err := reader.Seek(readpos+int64(bufpos+skipped), io.SeekStart); err != nil {
 				return nil, err
 			}
 			return buf[:bufpos], nil
 		}
-	
+
 	}
 }
 
@@ -251,7 +251,7 @@ func WriteImageData(writer io.WriteSeeker, buf []byte) error {
 			_, err := writer.Write(buf[bufpos:])
 			return err
 		}
-		if _, err := writer.Write(buf[bufpos:bufpos+ffpos+1]); err != nil {
+		if _, err := writer.Write(buf[bufpos : bufpos+ffpos+1]); err != nil {
 			return err
 		}
 		// Escape a 0xFF byte by appending a 0 byte.
@@ -265,9 +265,9 @@ func WriteImageData(writer io.WriteSeeker, buf []byte) error {
 // Scanner represents a reader for JPEG markers and segments up to the
 // SOS marker.
 type Scanner struct {
-	reader io.ReadSeeker
-	buf    []byte // buffer of size 2^16 - 3
-	imageData bool  // true when expecting image data: after an SOS segment or RST marker.
+	reader    io.ReadSeeker
+	buf       []byte // buffer of size 2^16 - 3
+	imageData bool   // true when expecting image data: after an SOS segment or RST marker.
 }
 
 // NewScanner creates a new Scanner and checks the JPEG header.
@@ -302,7 +302,7 @@ func (scanner *Scanner) Scan() (Marker, []byte, error) {
 		if err != nil {
 			return 0, nil, err
 		}
-		scanner.imageData = (marker == SOS || marker >= RST0  && marker <= RST0+7)
+		scanner.imageData = (marker == SOS || marker >= RST0 && marker <= RST0+7)
 		if marker == EOI || marker == TEM || (marker >= RST0 && marker <= RST0+7) {
 			return marker, nil, nil
 		}
@@ -430,6 +430,42 @@ func GetMPFTree(buf []byte) (*tiff.IFDNode, error) {
 func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
 	tiff.PutHeader(buf, mpf.Order, tiff.HeaderSize)
 	return mpf.PutIFDTree(buf, tiff.HeaderSize)
+}
+
+// MPFImageOffsets returns the file offset of each image referred to
+// in an MPF index. Takes the unpacked MPF TIFF tree and the file
+// offset of the MPF header.
+func MPFImageOffsets(mpfTree *tiff.IFDNode, mpfOffset uint32) ([]uint32, error) {
+	order := mpfTree.Order
+	count := uint32(0)
+	for _, f := range mpfTree.Fields {
+		switch f.Tag {
+		case MPFNumberOfImages:
+			count = f.Long(0, order)
+		case MPFEntry:
+			if count == 0 {
+				return nil, errors.New("MPF image count is 0, or tags out of order")
+			}
+			if uint32(len(f.Data)) < 16*count {
+				return nil, errors.New("MPF Entry doesn't have 16 bytes for each image")
+			}
+			if f.Long(2, order) != 0 {
+				return nil, errors.New("Offset of first image in MPF isn't 0")
+			}
+			offsets := make([]uint32, count)
+			for i := uint32(0); i < count; i++ {
+				relOffset := f.Long(i*4+2, order)
+				if relOffset != 0 {
+					offsets[i] = relOffset + mpfOffset
+					if offsets[i] < mpfOffset {
+						return nil, errors.New("MPF offset overflow")
+					}
+				}
+			}
+			return offsets, nil
+		}
+	}
+	return nil, nil
 }
 
 // Tags in the MPFIndex IFD.
