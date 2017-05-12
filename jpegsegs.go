@@ -125,8 +125,8 @@ func ReadMarker(reader io.Reader, buf []byte) (Marker, error) {
 }
 
 // WriteMarker writes a JPEG marker: a pair of bytes starting with 0xFF.
-func WriteMarker(writer io.Writer, marker Marker, buf []byte) error {
-	buf = buf[0:2]
+func WriteMarker(writer io.Writer, marker Marker) error {
+	buf := make([]byte, 2)
 	buf[0] = 0xFF
 	buf[1] = byte(marker)
 	_, err := writer.Write(buf)
@@ -146,11 +146,12 @@ func ReadData(reader io.Reader, buf []byte) ([]byte, error) {
 }
 
 // WriteData writes a JPEG data segment, which follows a marker.
-func WriteData(writer io.Writer, buf []byte, lenbuf []byte) error {
+func WriteData(writer io.Writer, buf []byte) error {
 	len := len(buf) + 2
 	if len >= 2<<15 {
 		return errors.New(fmt.Sprintf("writeData: data is too long (%d), max 2^16 - 3 (%d)", len-2, 2<<15-3))
 	}
+	lenbuf := make([]byte, 2)
 	lenbuf[0] = byte(len / 256)
 	lenbuf[1] = byte(len % 256)
 	if _, err := writer.Write(lenbuf); err != nil {
@@ -314,15 +315,13 @@ func (scanner *Scanner) Scan() (Marker, []byte, error) {
 // Dumper represents a writer for JPEG markers and segments.
 type Dumper struct {
 	writer io.Writer
-	buf    []byte // buffer of size 2
 }
 
 // NewDumper creates a new Dumper and writes the JPEG header.
 func NewDumper(writer io.Writer) (*Dumper, error) {
 	dumper := new(Dumper)
 	dumper.writer = writer
-	dumper.buf = make([]byte, 2)
-	if err := WriteMarker(writer, SOI, dumper.buf); err != nil {
+	if err := WriteMarker(writer, SOI); err != nil {
 		return nil, err
 	}
 	return dumper, nil
@@ -333,11 +332,11 @@ func (dumper *Dumper) Dump(marker Marker, buf []byte) error {
 	if marker == 0 {
 		return WriteImageData(dumper.writer, buf)
 	}
-	if err := WriteMarker(dumper.writer, marker, dumper.buf); err != nil {
+	if err := WriteMarker(dumper.writer, marker); err != nil {
 		return err
 	}
 	if buf != nil {
-		if err := WriteData(dumper.writer, buf, dumper.buf); err != nil {
+		if err := WriteData(dumper.writer, buf); err != nil {
 			return err
 		}
 	}
