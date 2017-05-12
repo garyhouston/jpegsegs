@@ -242,7 +242,7 @@ NEXTBLOCK:
 }
 
 // WriteImageData writes a block of image data.
-func WriteImageData(writer io.WriteSeeker, buf []byte) error {
+func WriteImageData(writer io.Writer, buf []byte) error {
 	bufpos := 0
 	tmp := []byte{0}
 	for {
@@ -313,12 +313,12 @@ func (scanner *Scanner) Scan() (Marker, []byte, error) {
 
 // Dumper represents a writer for JPEG markers and segments.
 type Dumper struct {
-	writer io.WriteSeeker
+	writer io.Writer
 	buf    []byte // buffer of size 2
 }
 
 // NewDumper creates a new Dumper and writes the JPEG header.
-func NewDumper(writer io.WriteSeeker) (*Dumper, error) {
+func NewDumper(writer io.Writer) (*Dumper, error) {
 	dumper := new(Dumper)
 	dumper.writer = writer
 	dumper.buf = make([]byte, 2)
