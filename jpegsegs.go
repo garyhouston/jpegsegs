@@ -438,34 +438,32 @@ func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
 func MPFImageOffsets(mpfTree *tiff.IFDNode, mpfOffset uint32) ([]uint32, error) {
 	order := mpfTree.Order
 	count := uint32(0)
+	var entryField tiff.Field
 	for _, f := range mpfTree.Fields {
 		switch f.Tag {
 		case MPFNumberOfImages:
 			count = f.Long(0, order)
 		case MPFEntry:
-			if count == 0 {
-				return nil, errors.New("MPF image count is 0, or tags out of order")
-			}
-			if uint32(len(f.Data)) < 16*count {
-				return nil, errors.New("MPF Entry doesn't have 16 bytes for each image")
-			}
-			if f.Long(2, order) != 0 {
-				return nil, errors.New("Offset of first image in MPF isn't 0")
-			}
-			offsets := make([]uint32, count)
-			for i := uint32(0); i < count; i++ {
-				relOffset := f.Long(i*4+2, order)
-				if relOffset != 0 {
-					offsets[i] = relOffset + mpfOffset
-					if offsets[i] < mpfOffset {
-						return nil, errors.New("MPF offset overflow")
-					}
-				}
-			}
-			return offsets, nil
+			entryField = f
 		}
 	}
-	return nil, nil
+	if count == 0 {
+		return nil, errors.New("MPF image count is 0")
+	}
+	if uint32(len(entryField.Data)) < 16*count {
+		return nil, errors.New("MPF Entry doesn't have 16 bytes for each image")
+	}
+	offsets := make([]uint32, count)
+	for i := uint32(0); i < count; i++ {
+		relOffset := entryField.Long(i*4+2, order)
+		if relOffset != 0 {
+			offsets[i] = relOffset + mpfOffset
+			if offsets[i] < mpfOffset {
+				return nil, errors.New("MPF offset overflow")
+			}
+		}
+	}
+	return offsets, nil
 }
 
 // Tags in the MPFIndex IFD.
