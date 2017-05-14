@@ -13,8 +13,8 @@ import (
 
 // Unpack MPF from TIFF. If there's an index of images with offsets,
 // convert the offsets to file positions and return them.
-func extractOffsets(reader io.Seeker, buf []byte, tiffOffset uint32) ([]uint32, error) {
-	mpfTree, err := jseg.GetMPFTree(buf[tiffOffset:])
+func extractOffsets(reader io.Seeker, buf []byte, tiffOffset uint32, mpfSpace tiff.TagSpace) ([]uint32, error) {
+	mpfTree, err := jseg.GetMPFTree(buf[tiffOffset:], mpfSpace)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func extractOffsets(reader io.Seeker, buf []byte, tiffOffset uint32) ([]uint32, 
 // Process a single image. A file using the MPF extension can contain
 // multiple images: returns the image offsets relative to the start of
 // the file if found.
-func scanImage(reader io.ReadSeeker) ([]uint32, error) {
+func scanImage(reader io.ReadSeeker, mpfSpace tiff.TagSpace) ([]uint32, error) {
 	scanner, err := jseg.NewScanner(reader)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func scanImage(reader io.ReadSeeker) ([]uint32, error) {
 			isMPF, next := jseg.GetMPFHeader(buf)
 			if isMPF {
 				fmt.Printf("%s, %d bytes (MPF segment)\n", marker.Name(), len(buf))
-				offsets, err = extractOffsets(reader, buf, next)
+				offsets, err = extractOffsets(reader, buf, next, mpfSpace)
 				if err != nil {
 					return nil, err
 				}
@@ -95,7 +95,7 @@ func scanMPFImages(reader io.ReadSeeker, offsets []uint32) error {
 			if _, err := reader.Seek(int64(offsets[i]), io.SeekStart); err != nil {
 				return err
 			}
-			if _, err := scanImage(reader); err != nil {
+			if _, err := scanImage(reader, tiff.MPFAttributeSpace); err != nil {
 				return err
 			}
 		}
@@ -113,7 +113,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer reader.Close()
-	offsets, err := scanImage(reader)
+	offsets, err := scanImage(reader, tiff.MPFIndexSpace)
 	if err != nil {
 		log.Fatal(err)
 	}
