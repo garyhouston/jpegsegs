@@ -10,7 +10,7 @@ This library is still under construction and may change at any moment without ba
 
 Example programs in the repository:
 
-jpegsegsprint prints the markers and segment lengths in a JPEG file (first image only, it doesn't yet support Multi-Picture Format.)
+jpegsegsprint prints the markers and segment lengths in a JPEG file.
 
 jpegsegscopy makes an unmodified copy of a JPEG file.
 
