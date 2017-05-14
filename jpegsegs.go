@@ -410,13 +410,15 @@ func PutMPFHeader(buf []byte) uint32 {
 }
 
 // GetMPFTree reads a TIFF structure with MPF data. 'buf' must start
-// with the first byte of the TIFF header.
-func GetMPFTree(buf []byte) (*tiff.IFDNode, error) {
+// with the first byte of the TIFF header. 'space' should be
+// tiff.MPFIndexSpace for the first image in a file, and
+// tiff.MPFAttributeSpace for subsequent images.
+func GetMPFTree(buf []byte, space tiff.TagSpace) (*tiff.IFDNode, error) {
 	valid, order, ifdpos := tiff.GetHeader(buf)
 	if !valid {
 		return nil, errors.New("GetMPFTree: Invalid Tiff header")
 	}
-	node, err := tiff.GetIFDTree(buf, order, ifdpos, tiff.MPFIndexSpace)
+	node, err := tiff.GetIFDTree(buf, order, ifdpos, space)
 	if err != nil {
 		return nil, err
 	}
