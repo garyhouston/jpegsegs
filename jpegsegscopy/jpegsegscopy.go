@@ -1,7 +1,7 @@
 package main
 
 // Unpack a JPEG file one segment at a time and repackage into a new
-// JPEG file.  It can process files using the Multi-Picture Format
+// JPEG file.  It can process files which use the Multi-Picture Format
 // extension to contain multiple images.
 
 import (
@@ -126,7 +126,6 @@ func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32
 				}
 				f.PutLong(lengths[i], uint32(i*4+1), order)
 				f.PutLong(offset, uint32(i*4+2), order)
-				// too far in by 3 bytes ?
 			}
 		}
 	}
