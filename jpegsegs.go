@@ -433,6 +433,18 @@ func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
 	return mpf.PutIFDTree(buf, tiff.HeaderSize)
 }
 
+// Serialize a MPF TIFF tree into a newly allocated slice, which can
+// be used as an APP2 JPEG segment.
+func MakeMPFSegment(tree *tiff.IFDNode) ([]byte, error) {
+	size := MPFHeaderSize + tiff.HeaderSize + tree.TreeSize()
+	buf := make([]byte, size)
+	next := PutMPFHeader(buf)
+	if _, err := PutMPFTree(buf[next:], tree); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
 // MPFImageOffsets returns the file offset of each image referred to
 // in an MPF index. Takes the unpacked MPF TIFF tree and the file
 // offset of the MPF header.
