@@ -46,7 +46,7 @@ func copyImage(writer io.WriteSeeker, reader io.ReadSeeker, mpfSpace tiff.TagSpa
 				mpfTree.Fix()
 				if mpfTree.Space == tiff.MPFIndexSpace {
 					// MPF offsets are relative to
-					// the start of the MPF
+					// the byte following the MPF
 					// header, which is 4 bytes
 					// past the start of buf.  The
 					// current position of the
@@ -112,23 +112,7 @@ func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, offsets []uint32
 // Modify a MPF TIFF tree with new image offsets and sizes, then overwrite the
 // MPF data in the output stream.
 func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32, offsets, lengths []uint32) error {
-	order := mpfTree.Order
-	for _, f := range mpfTree.Fields {
-		if f.Tag == jseg.MPFEntry {
-			for i := 0; i < len(offsets); i++ {
-				var offset uint32
-				if offsets[i] > 0 {
-					// MPF offsets are relative to
-					// the byte after the MPF
-					// header, i.e., 8 bytes into
-					// the MPF APP2 block.
-					offset = offsets[i] - mpfWritePos - 8
-				}
-				f.PutLong(lengths[i], uint32(i*4+1), order)
-				f.PutLong(offset, uint32(i*4+2), order)
-			}
-		}
-	}
+	jseg.SetMPFImagePositions(mpfTree, mpfWritePos + 8, offsets, lengths)
 	newbuf, err := jseg.MakeMPFSegment(mpfTree)
 	if err != nil {
 		return err
