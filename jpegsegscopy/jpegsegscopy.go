@@ -100,10 +100,6 @@ func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, offsets []uint32
 			if _, _, _, err := copyImage(writer, reader, tiff.MPFAttributeSpace); err != nil {
 				return nil, err
 			}
-			pos, err = writer.Seek(0, io.SeekCurrent)
-			if err != nil {
-				return nil, err
-			}
 		}
 	}
 	return newOffsets, nil
