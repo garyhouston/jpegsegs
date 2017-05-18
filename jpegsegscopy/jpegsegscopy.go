@@ -13,17 +13,6 @@ import (
 	"os"
 )
 
-// Serialize a MPF TIFF tree into a new APP2 segment.
-func putMPF(mpfTree *tiff.IFDNode) ([]byte, error) {
-	size := jseg.MPFHeaderSize + tiff.HeaderSize + mpfTree.TreeSize()
-	newbuf := make([]byte, size)
-	next := jseg.PutMPFHeader(newbuf)
-	if _, err := jseg.PutMPFTree(newbuf[next:], mpfTree); err != nil {
-		return nil, err
-	}
-	return newbuf, nil
-}
-
 // Copy a single image. If a MPF segment is found in APP2, return a
 // MPF TIFF tree, the MPF image offsets in the input file, and the
 // position where the MPF segment was written in the output file.
@@ -73,7 +62,7 @@ func copyImage(writer io.WriteSeeker, reader io.ReadSeeker, mpfSpace tiff.TagSpa
 						return nil, nil, 0, err
 					}
 				}
-				buf, err = putMPF(mpfTree)
+				buf, err = jseg.MakeMPFSegment(mpfTree)
 				if err != nil {
 					return nil, nil, 0, err
 				}
@@ -141,7 +130,7 @@ func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32
 			}
 		}
 	}
-	newbuf, err := putMPF(mpfTree)
+	newbuf, err := jseg.MakeMPFSegment(mpfTree)
 	if err != nil {
 		return err
 	}
