@@ -446,8 +446,9 @@ func MakeMPFSegment(tree *tiff.IFDNode) ([]byte, error) {
 }
 
 // MPFImageOffsets returns the file offset of each image referred to
-// in an MPF index. Takes the unpacked MPF TIFF tree and the file
-// offset of the MPF header.
+// in an MPF index. Takes the unpacked MPF TIFF tree and the MPF
+// relative offset (the position after the MPF header in the file,
+// which is 8 bytes into the MPF APP2 block).
 func MPFImageOffsets(mpfTree *tiff.IFDNode, mpfOffset uint32) ([]uint32, error) {
 	order := mpfTree.Order
 	count := uint32(0)
@@ -479,6 +480,27 @@ func MPFImageOffsets(mpfTree *tiff.IFDNode, mpfOffset uint32) ([]uint32, error) 
 	return offsets, nil
 }
 
+// Set the file offset and length for each image in an MPF
+// index. Takes an MPF TIFF tree, the MPF relative offset (the
+// position after the MPF header in the file, which is 8 bytes into
+// the MPF APP2 block), and the offset and length values relative to
+// the start of the file.
+func SetMPFImagePositions(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, lengths []uint32) {
+	order := mpfTree.Order
+	for _, f := range mpfTree.Fields {
+		if f.Tag == MPFEntry {
+			for i := 0; i < len(offsets); i++ {
+				var offset uint32
+				if offsets[i] > 0 {
+					offset = offsets[i] - mpfOffset
+				}
+				f.PutLong(lengths[i], uint32(i*4+1), order)
+				f.PutLong(offset, uint32(i*4+2), order)
+			}
+		}
+	}
+}
+	
 // Tags in the MPFIndex IFD.
 const (
 	MPFVersion        = 0xB000
