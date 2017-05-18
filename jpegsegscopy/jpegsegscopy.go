@@ -18,8 +18,7 @@ func putMPF(mpfTree *tiff.IFDNode) ([]byte, error) {
 	size := jseg.MPFHeaderSize + tiff.HeaderSize + mpfTree.TreeSize()
 	newbuf := make([]byte, size)
 	next := jseg.PutMPFHeader(newbuf)
-	tiff.PutHeader(newbuf[next:], mpfTree.Order, tiff.HeaderSize)
-	if _, err := mpfTree.PutIFDTree(newbuf[next:], tiff.HeaderSize); err != nil {
+	if _, err := jseg.PutMPFTree(newbuf[next:], mpfTree); err != nil {
 		return nil, err
 	}
 	return newbuf, nil
