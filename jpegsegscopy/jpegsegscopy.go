@@ -132,7 +132,7 @@ func copyImage(writer io.WriteSeeker, reader io.ReadSeeker, mpfProcessor MPFProc
 // Copy additional images specified with MPF.
 func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, offsets []uint32) ([]uint32, error) {
 	count := uint32(len(offsets))
-	newOffsets := make([]uint32, len(offsets))
+	newOffsets := make([]uint32, count)
 	for i := uint32(0); i < count; i++ {
 		if offsets[i] > 0 {
 			if _, err := reader.Seek(int64(offsets[i]), io.SeekStart); err != nil {
@@ -154,10 +154,26 @@ func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, offsets []uint32
 	return newOffsets, nil
 }
 
+// Modify a MPF Tiff tree with new image offsets and sizes, given the
+// offsets and the end of file position.
+func setMPFImagePositions2(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, end uint32) {
+	count := len(offsets)
+	lengths := make([]uint32, count)
+	for i := 0; i < count-1; i++ {
+		lengths[i] = offsets[i+1] - offsets[i]
+	}
+	lengths[count-1] = end - offsets[count-1]
+	jseg.SetMPFImagePositions(mpfTree, mpfOffset, offsets, lengths)
+}
+
 // Modify a MPF TIFF tree with new image offsets and sizes, then overwrite the
 // MPF data in the output stream.
-func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32, offsets, lengths []uint32) error {
-	jseg.SetMPFImagePositions(mpfTree, mpfWritePos+8, offsets, lengths)
+func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32, offsets []uint32) error {
+	end, err := writer.Seek(0, io.SeekCurrent)
+	if err != nil {
+		log.Fatal(err)
+	}
+	setMPFImagePositions2(mpfTree, mpfWritePos+8, offsets, uint32(end))
 	newbuf, err := jseg.MakeMPFSegment(mpfTree)
 	if err != nil {
 		return err
@@ -198,17 +214,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		numImages := len(newOffsets)
-		newLengths := make([]uint32, numImages)
-		for i := 0; i < numImages-1; i++ {
-			newLengths[i] = newOffsets[i+1] - newOffsets[i]
-		}
-		lastpos, err := writer.Seek(0, io.SeekCurrent)
-		if err != nil {
-			log.Fatal(err)
-		}
-		newLengths[numImages-1] = uint32(lastpos) - newOffsets[numImages-1]
-		if err = rewriteMPF(writer, mpfIndex.Tree, mpfIndex.APP2WritePos, newOffsets, newLengths); err != nil {
+		if err = rewriteMPF(writer, mpfIndex.Tree, mpfIndex.APP2WritePos, newOffsets); err != nil {
 			log.Fatal(err)
 		}
 	}
