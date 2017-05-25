@@ -15,10 +15,9 @@ import (
 
 // MPF processor that reads and repacks the index data.
 type MPFIndexData struct {
-	Tree         *tiff.IFDNode // Unpacked MPF index TIFF tree.
-	MPFOffset    uint32        // Offset of byte following MPF header in input stream.
-	ImageOffsets []uint32      // Offsets of images in input stream, relative to MPFOffset, or 0 for the first image.
-	APP2WritePos uint32        // Position of the MPF APP2 marker in the output stream.
+	Tree         *tiff.IFDNode  // Unpacked MPF index TIFF tree.
+	Index        *jseg.MPFIndex // MPF Index info.
+	APP2WritePos uint32         // Position of the MPF APP2 marker in the output stream.
 }
 
 func (mpfData *MPFIndexData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf []byte) (bool, []byte, error) {
@@ -41,9 +40,8 @@ func (mpfData *MPFIndexData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf
 		if err != nil {
 			return false, nil, err
 		}
-		mpfData.MPFOffset = uint32(pos) - uint32(len(buf)-4)
-		mpfData.ImageOffsets, err = jseg.MPFImageOffsets(mpfData.Tree, mpfData.MPFOffset)
-		if err != nil {
+		offset := uint32(pos) - uint32(len(buf)-4)
+		if mpfData.Index, err = jseg.MPFIndexFromTIFF(mpfData.Tree, offset); err != nil {
 			return false, nil, err
 		}
 		buf, err = jseg.MakeMPFSegment(mpfData.Tree)
@@ -129,41 +127,49 @@ func copyImage(writer io.WriteSeeker, reader io.ReadSeeker, mpfProcessor MPFProc
 	return nil
 }
 
-// Copy additional images specified with MPF.
-func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, offsets []uint32) ([]uint32, error) {
-	count := uint32(len(offsets))
-	newOffsets := make([]uint32, count)
-	for i := uint32(0); i < count; i++ {
-		if offsets[i] > 0 {
-			if _, err := reader.Seek(int64(offsets[i]), io.SeekStart); err != nil {
-				return nil, err
-			}
-			pos, err := writer.Seek(0, io.SeekCurrent)
-			if err != nil {
-				return nil, err
-			}
-			newOffsets[i] = uint32(pos)
-			// Processing the MPF attribute data could be omitted,
-			// by passing a MPFDummyData object.
-			var mpfAttribute MPFAttributeData
-			if err := copyImage(writer, reader, &mpfAttribute); err != nil {
-				return nil, err
-			}
+// State for MPF image iterator.
+type copyData struct {
+	writer     io.WriteSeeker
+	newOffsets []uint32
+}
+
+// Function to be applied to each MPF image: copies the image to the
+// output stream.
+func (copy *copyData) MPFApply(reader io.ReadSeeker, index uint32, length uint32) error {
+	if index > 0 {
+		pos, err := copy.writer.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
 		}
+		copy.newOffsets[index] = uint32(pos)
+		// Processing the MPF attribute data could be omitted,
+		// by passing a MPFDummyData object.
+		var mpfAttribute MPFAttributeData
+		return copyImage(copy.writer, reader, &mpfAttribute)
 	}
-	return newOffsets, nil
+	return nil
+}
+
+// Copy additional images specified with MPF.
+func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, index *jseg.MPFIndex) ([]uint32, error) {
+	var copy copyData
+	copy.writer = writer
+	copy.newOffsets = make([]uint32, len(index.ImageOffsets))
+	index.ImageIterate(reader, &copy)
+	return copy.newOffsets, nil
 }
 
 // Modify a MPF Tiff tree with new image offsets and sizes, given the
 // offsets and the end of file position.
-func setMPFImagePositions2(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, end uint32) {
+func setMPFImagePositions(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, end uint32) {
 	count := len(offsets)
 	lengths := make([]uint32, count)
 	for i := 0; i < count-1; i++ {
 		lengths[i] = offsets[i+1] - offsets[i]
 	}
 	lengths[count-1] = end - offsets[count-1]
-	jseg.SetMPFImagePositions(mpfTree, mpfOffset, offsets, lengths)
+	indexWrite := jseg.MPFIndex{mpfOffset, offsets, lengths}
+	indexWrite.PutToTiff(mpfTree)
 }
 
 // Modify a MPF TIFF tree with new image offsets and sizes, then overwrite the
@@ -173,7 +179,7 @@ func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32
 	if err != nil {
 		log.Fatal(err)
 	}
-	setMPFImagePositions2(mpfTree, mpfWritePos+8, offsets, uint32(end))
+	setMPFImagePositions(mpfTree, mpfWritePos+8, offsets, uint32(end))
 	newbuf, err := jseg.MakeMPFSegment(mpfTree)
 	if err != nil {
 		return err
@@ -210,7 +216,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if mpfIndex.Tree != nil {
-		newOffsets, err := copyMPFImages(writer, reader, mpfIndex.ImageOffsets)
+		newOffsets, err := copyMPFImages(writer, reader, mpfIndex.Index)
 		if err != nil {
 			log.Fatal(err)
 		}
