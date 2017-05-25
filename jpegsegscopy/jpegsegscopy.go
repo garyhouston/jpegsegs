@@ -60,7 +60,6 @@ func (mpfData *MPFIndexData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf
 
 // MPF processor that reads and repacks the attribute data.
 type MPFAttributeData struct {
-	Tree *tiff.IFDNode // Unpacked MPF attribute TIFF tree.
 }
 
 func (mpfData *MPFAttributeData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf []byte) (bool, []byte, error) {
@@ -69,13 +68,12 @@ func (mpfData *MPFAttributeData) ProcessAPP2(writer io.Seeker, reader io.Seeker,
 	if isMPF {
 		savebuf := make([]byte, len(buf)-jseg.MPFHeaderSize)
 		copy(savebuf, buf[next:])
-		var err error
-		mpfData.Tree, err = jseg.GetMPFTree(savebuf, tiff.MPFAttributeSpace)
+		tree, err := jseg.GetMPFTree(savebuf, tiff.MPFAttributeSpace)
 		if err != nil {
 			return false, nil, err
 		}
-		mpfData.Tree.Fix()
-		buf, err = jseg.MakeMPFSegment(mpfData.Tree)
+		tree.Fix()
+		buf, err = jseg.MakeMPFSegment(tree)
 		if err != nil {
 			return false, nil, err
 		}
