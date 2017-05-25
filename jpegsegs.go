@@ -385,122 +385,16 @@ func WriteSegments(writer io.WriteSeeker, segments []Segment) error {
 	return nil
 }
 
-// MPF header, as found in a JPEG APP2 segment.
-var mpfheader = []byte("MPF\000")
+// Support for Multi-Picture Format (MPF), which specifies a way to
+// store multiple images in a single JPEG file.
 
-// MPFHeaderSize is the size of a MPF (Multi-Picture Format) header.
+// MPFHeader is the text marker for a MPF segment, found in a JPEG
+// APP2 segment.
+var MPFHeader = []byte("MPF\000")
+
+// MPFHeaderSize is the size of an MPF header.
 const MPFHeaderSize = 4
 
-// GetMPFHeader checks if a slice starts with a Multi-Picture Format
-// (MPF) header, as found in a JPEG APP2 segment.  Returns a flag and
-// the position of the next byte.
-func GetMPFHeader(buf []byte) (bool, uint32) {
-	if uint32(len(buf)) >= MPFHeaderSize && bytes.Compare(buf[:MPFHeaderSize], mpfheader) == 0 {
-		return true, MPFHeaderSize
-	} else {
-		return false, 0
-	}
-}
-
-// PutMPFHeader puts a MPF header at the start of a slice, returning
-// the position of the next byte.
-func PutMPFHeader(buf []byte) uint32 {
-	copy(buf, mpfheader)
-	return MPFHeaderSize
-}
-
-// GetMPFTree reads a TIFF structure with MPF data. 'buf' must start
-// with the first byte of the TIFF header. 'space' should be
-// tiff.MPFIndexSpace for the first image in a file, and
-// tiff.MPFAttributeSpace for subsequent images.
-func GetMPFTree(buf []byte, space tiff.TagSpace) (*tiff.IFDNode, error) {
-	valid, order, ifdpos := tiff.GetHeader(buf)
-	if !valid {
-		return nil, errors.New("GetMPFTree: Invalid Tiff header")
-	}
-	node, err := tiff.GetIFDTree(buf, order, ifdpos, space)
-	if err != nil {
-		return nil, err
-	}
-	return node, nil
-}
-
-// MputMPFTree packs MPF data into a slice in TIFF format. The slice
-// should start with the first byte following the MPF header. Returns
-// the position following the last byte used.
-func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
-	tiff.PutHeader(buf, mpf.Order, tiff.HeaderSize)
-	return mpf.PutIFDTree(buf, tiff.HeaderSize)
-}
-
-// Serialize a MPF TIFF tree into a newly allocated slice, which can
-// be used as an APP2 JPEG segment.
-func MakeMPFSegment(tree *tiff.IFDNode) ([]byte, error) {
-	size := MPFHeaderSize + tiff.HeaderSize + tree.TreeSize()
-	buf := make([]byte, size)
-	next := PutMPFHeader(buf)
-	if _, err := PutMPFTree(buf[next:], tree); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-// MPFImageOffsets returns the file offset of each image referred to
-// in an MPF index. Takes the unpacked MPF TIFF tree and the MPF
-// relative offset (the position after the MPF header in the file,
-// which is 8 bytes into the MPF APP2 block).
-func MPFImageOffsets(mpfTree *tiff.IFDNode, mpfOffset uint32) ([]uint32, error) {
-	order := mpfTree.Order
-	count := uint32(0)
-	var entryField tiff.Field
-	for _, f := range mpfTree.Fields {
-		switch f.Tag {
-		case MPFNumberOfImages:
-			count = f.Long(0, order)
-		case MPFEntry:
-			entryField = f
-		}
-	}
-	if count == 0 {
-		return nil, errors.New("MPF image count is 0")
-	}
-	if uint32(len(entryField.Data)) < 16*count {
-		return nil, errors.New("MPF Entry doesn't have 16 bytes for each image")
-	}
-	offsets := make([]uint32, count)
-	for i := uint32(0); i < count; i++ {
-		relOffset := entryField.Long(i*4+2, order)
-		if relOffset != 0 {
-			offsets[i] = relOffset + mpfOffset
-			if offsets[i] < mpfOffset {
-				return nil, errors.New("MPF offset overflow")
-			}
-		}
-	}
-	return offsets, nil
-}
-
-// Set the file offset and length for each image in an MPF
-// index. Takes an MPF TIFF tree, the MPF relative offset (the
-// position after the MPF header in the file, which is 8 bytes into
-// the MPF APP2 block), and the offset and length values relative to
-// the start of the file.
-func SetMPFImagePositions(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, lengths []uint32) {
-	order := mpfTree.Order
-	for _, f := range mpfTree.Fields {
-		if f.Tag == MPFEntry {
-			for i := 0; i < len(offsets); i++ {
-				var offset uint32
-				if offsets[i] > 0 {
-					offset = offsets[i] - mpfOffset
-				}
-				f.PutLong(lengths[i], uint32(i*4+1), order)
-				f.PutLong(offset, uint32(i*4+2), order)
-			}
-		}
-	}
-}
-	
 // Tags in the MPFIndex IFD.
 const (
 	MPFVersion        = 0xB000
@@ -555,4 +449,155 @@ var MPFAttributeTagNames = map[tiff.Tag]string{
 	MPFYawAngle:                    "MPFYawAngle",
 	MPFPitchAngle:                  "MPFPitchAngle",
 	MPFRollAngle:                   "MPFRollAngle",
+}
+
+// GetMPFHeader checks if a slice starts with an MPF header, as found
+// in a JPEG APP2 segment.  Returns a flag and the position of the
+// next byte.
+func GetMPFHeader(buf []byte) (bool, uint32) {
+	if uint32(len(buf)) >= MPFHeaderSize && bytes.Compare(buf[:MPFHeaderSize], MPFHeader) == 0 {
+		return true, MPFHeaderSize
+	} else {
+		return false, 0
+	}
+}
+
+// PutMPFHeader puts an MPF header at the start of a slice, returning
+// the position of the next byte.
+func PutMPFHeader(buf []byte) uint32 {
+	copy(buf, MPFHeader)
+	return MPFHeaderSize
+}
+
+// GetMPFTree reads a TIFF structure with MPF data. 'buf' must start
+// with the first byte of the TIFF header. 'space' should be
+// tiff.MPFIndexSpace for the first image in a file, and
+// tiff.MPFAttributeSpace for subsequent images.
+func GetMPFTree(buf []byte, space tiff.TagSpace) (*tiff.IFDNode, error) {
+	valid, order, ifdpos := tiff.GetHeader(buf)
+	if !valid {
+		return nil, errors.New("GetMPFTree: Invalid Tiff header")
+	}
+	node, err := tiff.GetIFDTree(buf, order, ifdpos, space)
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+// MputMPFTree packs MPF data into a slice in TIFF format. The slice
+// should start with the first byte following the MPF header. Returns
+// the position following the last byte used.
+func PutMPFTree(buf []byte, mpf *tiff.IFDNode) (uint32, error) {
+	tiff.PutHeader(buf, mpf.Order, tiff.HeaderSize)
+	return mpf.PutIFDTree(buf, tiff.HeaderSize)
+}
+
+// MakeMPFSegment serializes an MPF TIFF tree into a newly allocated
+// slice, which can be used as an APP2 JPEG segment.
+func MakeMPFSegment(tree *tiff.IFDNode) ([]byte, error) {
+	size := MPFHeaderSize + tiff.HeaderSize + tree.TreeSize()
+	buf := make([]byte, size)
+	next := PutMPFHeader(buf)
+	if _, err := PutMPFTree(buf[next:], tree); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+// MPFIndex holds the data from an MPF index segment about image
+// locations in a file.
+type MPFIndex struct {
+	// MPF relative offset, from which MPF positions are measured:
+	// the position after the MPF header in the file, which is 8
+	// bytes from the start of the MPF APP2 block.
+	Offset uint32
+	// Offsets and lengths of images in the file. Offsets are
+	// relative to the start of the file.
+	ImageOffsets []uint32
+	ImageLengths []uint32
+}
+
+// MPFIndexFromTIFF creates an MPFIndex struct from a TIFF node
+// containing an MPF index and the MPF file offset.
+func MPFIndexFromTIFF(node *tiff.IFDNode, offset uint32) (*MPFIndex, error) {
+	var mpf MPFIndex
+	mpf.Offset = offset
+	order := node.Order
+	count := uint32(0)
+	var entryField tiff.Field
+	for _, f := range node.Fields {
+		switch f.Tag {
+		case MPFNumberOfImages:
+			count = f.Long(0, order)
+		case MPFEntry:
+			entryField = f
+		}
+	}
+	if count == 0 {
+		return nil, errors.New("MPF image count is 0")
+	}
+	if uint32(len(entryField.Data)) < 16*count {
+		return nil, errors.New("MPF Entry doesn't have 16 bytes for each image")
+	}
+	offsets := make([]uint32, count)
+	lengths := make([]uint32, count)
+	for i := uint32(0); i < count; i++ {
+		relOffset := entryField.Long(i*4+2, order)
+		if relOffset != 0 {
+			offsets[i] = relOffset + offset
+			if offsets[i] < offset {
+				return nil, errors.New("MPF offset overflow")
+			}
+		}
+		if i == 0 {
+			if offsets[i] != 0 {
+				return nil, errors.New("First image should have an MPF offset of zero")
+			}
+		} else {
+			if offsets[i] == 0 {
+				return nil, errors.New("Only the first image should have an MPF offset of zero")
+			}
+		}
+		lengths[i] = entryField.Long(i*4+1, order)
+	}
+	mpf.ImageOffsets = offsets
+	mpf.ImageLengths = lengths
+	return &mpf, nil
+}
+
+type MPFApply interface {
+	MPFApply(reader io.ReadSeeker, index uint32, length uint32) error
+}
+
+// ImageIterate positions 'reader' at each image in turn, and calls
+// the apply func with 'reader', the image index, and the image
+// length.
+func (mpf *MPFIndex) ImageIterate(reader io.ReadSeeker, apply MPFApply) error {
+	for i := uint32(0); i < uint32(len(mpf.ImageOffsets)); i++ {
+		if _, err := reader.Seek(int64(mpf.ImageOffsets[i]), io.SeekStart); err != nil {
+			return err
+		}
+		if err := apply.MPFApply(reader, i, mpf.ImageLengths[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PutToTiff updates the file offsets and lengths in an MPF Tiff node
+// with data from an MPFIndex structure.
+func (mpf *MPFIndex) PutToTiff(node *tiff.IFDNode) {
+	for _, f := range node.Fields {
+		if f.Tag == MPFEntry {
+			for i := 0; i < len(mpf.ImageOffsets); i++ {
+				var offset uint32
+				if mpf.ImageOffsets[i] > 0 {
+					offset = mpf.ImageOffsets[i] - mpf.Offset
+				}
+				f.PutLong(offset, uint32(i*4+2), node.Order)
+				f.PutLong(mpf.ImageLengths[i], uint32(i*4+1), node.Order)
+			}
+		}
+	}
 }
