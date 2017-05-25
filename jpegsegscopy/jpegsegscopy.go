@@ -66,9 +66,7 @@ func (mpfData *MPFAttributeData) ProcessAPP2(writer io.Seeker, reader io.Seeker,
 	done := false
 	isMPF, next := jseg.GetMPFHeader(buf)
 	if isMPF {
-		savebuf := make([]byte, len(buf)-jseg.MPFHeaderSize)
-		copy(savebuf, buf[next:])
-		tree, err := jseg.GetMPFTree(savebuf, tiff.MPFAttributeSpace)
+		tree, err := jseg.GetMPFTree(buf[next:], tiff.MPFAttributeSpace)
 		if err != nil {
 			return false, nil, err
 		}
