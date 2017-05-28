@@ -5,57 +5,13 @@ package main
 import (
 	"fmt"
 	jseg "github.com/garyhouston/jpegsegs"
-	tiff "github.com/garyhouston/tiff66"
 	"io"
 	"log"
 	"os"
 )
 
-// MPF processor that reads the index data.
-type MPFIndexData struct {
-	Index *jseg.MPFIndex // MPF Index info.
-}
-
-func (mpfData *MPFIndexData) ProcessAPP2(reader io.Seeker, buf []byte) (bool, error) {
-	done := false
-	isMPF, next := jseg.GetMPFHeader(buf)
-	if isMPF {
-		tree, err := jseg.GetMPFTree(buf[next:], tiff.MPFIndexSpace)
-		if err != nil {
-			return false, err
-		}
-		// MPF offsets are relative to the byte following the
-		// MPF header, which is 4 bytes past the start of buf.
-		// The current position of the reader is one byte past
-		// the data read into buf.
-		pos, err := reader.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return false, err
-		}
-		offset := uint32(pos) - uint32(len(buf)-4)
-		if mpfData.Index, err = jseg.MPFIndexFromTIFF(tree, offset); err != nil {
-			return false, err
-		}
-		done = true
-	}
-	return done, nil
-}
-
-// MPF processor that just records the presence of an MPF segment.
-type MPFCheck struct {
-}
-
-func (mpfData *MPFCheck) ProcessAPP2(reader io.Seeker, buf []byte) (bool, error) {
-	isMPF, _ := jseg.GetMPFHeader(buf)
-	return isMPF, nil
-}
-
-type MPFProcessor interface {
-	ProcessAPP2(reader io.Seeker, buf []byte) (bool, error)
-}
-
 // Scan and print a single image, processing any MPF segment found.
-func scanImage(reader io.ReadSeeker, mpfProcessor MPFProcessor) error {
+func scanImage(reader io.ReadSeeker, mpfProcessor jseg.MPFProcessor) error {
 	scanner, err := jseg.NewScanner(reader)
 	if err != nil {
 		return err
@@ -91,7 +47,7 @@ func scanImage(reader io.ReadSeeker, mpfProcessor MPFProcessor) error {
 			continue
 		}
 		if marker == jseg.APP0+2 {
-			done, err := mpfProcessor.ProcessAPP2(reader, buf)
+			done, buf, err := mpfProcessor.ProcessAPP2(nil, reader, buf)
 			if err != nil {
 				return err
 			}
@@ -111,7 +67,7 @@ type scanData struct {
 // Function to be applied to each MPF image: prints image details.
 func (scan *scanData) MPFApply(reader io.ReadSeeker, index uint32, length uint32) error {
 	if index > 0 {
-		return scanImage(reader, &MPFCheck{})
+		return scanImage(reader, &jseg.MPFCheck{})
 	}
 	return nil
 }
@@ -126,13 +82,13 @@ func main() {
 		log.Fatal(err)
 	}
 	defer reader.Close()
-	var indexData MPFIndexData
-	err = scanImage(reader, &indexData)
+	var index jseg.MPFGetIndex
+	err = scanImage(reader, &index)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if indexData.Index != nil {
-		err = indexData.Index.ImageIterate(reader, &scanData{})
+	if index.Index != nil {
+		err = index.Index.ImageIterate(reader, &scanData{})
 		if err != nil {
 			log.Fatal(err)
 		}
