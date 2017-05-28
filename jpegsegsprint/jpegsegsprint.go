@@ -24,8 +24,8 @@ func (mpfData *MPFIndexData) ProcessAPP2(reader io.Seeker, buf []byte) (bool, er
 		if err != nil {
 			return false, err
 		}
-		// MPF offsets are relative to the start of the MPF
-		// header, which is 4 bytes past the start of buf.
+		// MPF offsets are relative to the byte following the
+		// MPF header, which is 4 bytes past the start of buf.
 		// The current position of the reader is one byte past
 		// the data read into buf.
 		pos, err := reader.Seek(0, io.SeekCurrent)
