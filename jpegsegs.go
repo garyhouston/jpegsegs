@@ -601,3 +601,107 @@ func (mpf *MPFIndex) PutToTiff(node *tiff.IFDNode) {
 		}
 	}
 }
+
+// MPFProcessor is an interface that provides a function for
+// processing MPF APP2 blocks. It assumes that 'seg' is a slice
+// containing a JPEG APP2 data segment, as returned by Scanner.Scan,
+// and that 'reader' has just read that segment and is now positioned
+// one byte past its end. 'writer' is either nil if not required, or
+// an output stream to which we can write an APP2 marker and data
+// segment. It returns a bool indicating whether an MPF block was
+// processed, the APP2 data segment, possibly modified, and an error
+// value.
+type MPFProcessor interface {
+	ProcessAPP2(writer io.WriteSeeker, reader io.ReadSeeker, seg []byte) (bool, []byte, error)
+}
+
+// MPFCheck conforms to the MPFProcessor interface. It checks for the
+// presense of an MPF block without processing it in any way.
+type MPFCheck struct {
+}
+
+func (MPFCheck) ProcessAPP2(_ io.WriteSeeker, _ io.ReadSeeker, seg []byte) (bool, []byte, error) {
+	isMPF, _ := GetMPFHeader(seg)
+	return isMPF, seg, nil
+}
+
+// MPFGetIndex conforms to the MPFProcessor interface. It can be
+// applied to the first image in a file to read image positions from
+// the MPF index.
+type MPFGetIndex struct {
+	Index *MPFIndex // MPF Index info.
+}
+
+func (mpfData *MPFGetIndex) ProcessAPP2(_ io.WriteSeeker, reader io.ReadSeeker, seg []byte) (bool, []byte, error) {
+	isMPF, next := GetMPFHeader(seg)
+	if isMPF {
+		tree, err := GetMPFTree(seg[next:], tiff.MPFIndexSpace)
+		if err != nil {
+			return false, nil, err
+		}
+		// MPF offsets are relative to the byte following the
+		// MPF header, which is 4 bytes past the start of seg.
+		// The current position of the reader is one byte past
+		// the data read into seg.
+		pos, err := reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return false, nil, err
+		}
+		offset := uint32(pos) - uint32(len(seg)-4)
+		if mpfData.Index, err = MPFIndexFromTIFF(tree, offset); err != nil {
+			return false, nil, err
+		}
+	}
+	return isMPF, seg, nil
+}
+
+// MPFIndexRewriter conforms to the MPFProcessor interface. It can be
+// applied to the first image in a file. It decodes the MPF index from
+// TIFF format, and reencodes it to a new segment unchanged, recording
+// the current write position. This allows the segment to be reencoded
+// again later, possibly with different image positions, but still
+// producing a segment of the same size.
+type MPFIndexRewriter struct {
+	Tree         *tiff.IFDNode // Unpacked MPF index TIFF tree.
+	Index        *MPFIndex     // MPF Index info.
+	APP2WritePos uint32        // Position of the MPF APP2 marker in the output stream.
+}
+
+func (mpfData *MPFIndexRewriter) ProcessAPP2(writer io.WriteSeeker, reader io.ReadSeeker, seg []byte) (bool, []byte, error) {
+	isMPF, next := GetMPFHeader(seg)
+	if isMPF {
+		// copy the segment before decoding, since the tree
+		// may contain pointers into it that will be
+		// invalidated if the original slice is changed.
+		saveseg := make([]byte, len(seg)-MPFHeaderSize)
+		copy(saveseg, seg[next:])
+		var err error
+		mpfData.Tree, err = GetMPFTree(saveseg, tiff.MPFIndexSpace)
+		if err != nil {
+			return false, nil, err
+		}
+		mpfData.Tree.Fix()
+		// MPF offsets are relative to the byte following the
+		// MPF header, which is 4 bytes past the start of seg.
+		// The current position of the reader is one byte past
+		// the data read into seg.
+		pos, err := reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return false, nil, err
+		}
+		offset := uint32(pos) - uint32(len(seg)-4)
+		if mpfData.Index, err = MPFIndexFromTIFF(mpfData.Tree, offset); err != nil {
+			return false, nil, err
+		}
+		seg, err = MakeMPFSegment(mpfData.Tree)
+		if err != nil {
+			return false, nil, err
+		}
+		pos, err = writer.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return false, nil, err
+		}
+		mpfData.APP2WritePos = uint32(pos)
+	}
+	return isMPF, seg, nil
+}
