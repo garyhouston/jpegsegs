@@ -13,57 +13,14 @@ import (
 	"os"
 )
 
-// MPF processor that reads and repacks the index data.
-type MPFIndexData struct {
-	Tree         *tiff.IFDNode  // Unpacked MPF index TIFF tree.
-	Index        *jseg.MPFIndex // MPF Index info.
-	APP2WritePos uint32         // Position of the MPF APP2 marker in the output stream.
-}
-
-func (mpfData *MPFIndexData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf []byte) (bool, []byte, error) {
-	done := false
-	isMPF, next := jseg.GetMPFHeader(buf)
-	if isMPF {
-		savebuf := make([]byte, len(buf)-jseg.MPFHeaderSize)
-		copy(savebuf, buf[next:])
-		var err error
-		mpfData.Tree, err = jseg.GetMPFTree(savebuf, tiff.MPFIndexSpace)
-		if err != nil {
-			return false, nil, err
-		}
-		mpfData.Tree.Fix()
-		// MPF offsets are relative to the byte following the
-		// MPF header, which is 4 bytes past the start of buf.
-		// The current position of the reader is one byte past
-		// the data read into buf.
-		pos, err := reader.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return false, nil, err
-		}
-		offset := uint32(pos) - uint32(len(buf)-4)
-		if mpfData.Index, err = jseg.MPFIndexFromTIFF(mpfData.Tree, offset); err != nil {
-			return false, nil, err
-		}
-		buf, err = jseg.MakeMPFSegment(mpfData.Tree)
-		if err != nil {
-			return false, nil, err
-		}
-		pos, err = writer.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return false, nil, err
-		}
-		mpfData.APP2WritePos = uint32(pos)
-		done = true
-	}
-	return done, buf, nil
-}
-
-// MPF processor that reads and repacks the attribute data.
+// MPFAttributeData conforms to the jseg.MPFProcessor interface. It's
+// applied to the APP2 segment of images after the first, to decode
+// and reencode MPF attribute data (not for any particular reason, but
+// to show it can be done.)
 type MPFAttributeData struct {
 }
 
-func (mpfData *MPFAttributeData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf []byte) (bool, []byte, error) {
-	done := false
+func (mpfData *MPFAttributeData) ProcessAPP2(writer io.WriteSeeker, reader io.ReadSeeker, buf []byte) (bool, []byte, error) {
 	isMPF, next := jseg.GetMPFHeader(buf)
 	if isMPF {
 		tree, err := jseg.GetMPFTree(buf[next:], tiff.MPFAttributeSpace)
@@ -75,25 +32,12 @@ func (mpfData *MPFAttributeData) ProcessAPP2(writer io.Seeker, reader io.Seeker,
 		if err != nil {
 			return false, nil, err
 		}
-		done = true
 	}
-	return done, buf, nil
-}
-
-// MPF processor that does nothing.
-type MPFDummyData struct {
-}
-
-func (mpfData *MPFDummyData) ProcessAPP2(writer io.Seeker, reader io.Seeker, buf []byte) (bool, []byte, error) {
-	return false, buf, nil
-}
-
-type MPFProcessor interface {
-	ProcessAPP2(writer io.Seeker, reader io.Seeker, buf []byte) (bool, []byte, error)
+	return isMPF, buf, nil
 }
 
 // Copy a single image, processing any MPF segment found.
-func copyImage(writer io.WriteSeeker, reader io.ReadSeeker, mpfProcessor MPFProcessor) error {
+func copyImage(writer io.WriteSeeker, reader io.ReadSeeker, mpfProcessor jseg.MPFProcessor) error {
 	scanner, err := jseg.NewScanner(reader)
 	if err != nil {
 		return err
@@ -138,8 +82,6 @@ func (copy *copyData) MPFApply(reader io.ReadSeeker, index uint32, length uint32
 			return err
 		}
 		copy.newOffsets[index] = uint32(pos)
-		// Processing the MPF attribute data could be omitted,
-		// by passing a MPFDummyData object.
 		var mpfAttribute MPFAttributeData
 		return copyImage(copy.writer, reader, &mpfAttribute)
 	}
@@ -207,7 +149,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer writer.Close()
-	var mpfIndex MPFIndexData
+	var mpfIndex jseg.MPFIndexRewriter
 	if err = copyImage(writer, reader, &mpfIndex); err != nil {
 		log.Fatal(err)
 	}
