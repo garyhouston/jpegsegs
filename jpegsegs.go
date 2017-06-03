@@ -705,3 +705,43 @@ func (mpfData *MPFIndexRewriter) ProcessAPP2(writer io.WriteSeeker, reader io.Re
 	}
 	return isMPF, seg, nil
 }
+
+// SetMPFPositions modifies an MPF TIFF tree with new image offsets
+// and sizes, given the offsets and the end of file position. It
+// calculates the the lengths by assuming that the images are
+// consecutive with no gaps.
+func SetMPFPositions(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, end uint32) {
+	count := len(offsets)
+	lengths := make([]uint32, count)
+	for i := 0; i < count-1; i++ {
+		lengths[i] = offsets[i+1] - offsets[i]
+	}
+	lengths[count-1] = end - offsets[count-1]
+	indexWrite := MPFIndex{mpfOffset, offsets, lengths}
+	indexWrite.PutToTiff(mpfTree)
+}
+
+// RewriteMPF modifies an MPF TIFF tree with new image offsets and
+// sizes, then overwrites the MPF data in the output stream at
+// mpfWritePos. 'offsets' and 'end' as processed as per
+// SetMPFPositions.
+func RewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32, offsets []uint32, end uint32) error {
+	SetMPFPositions(mpfTree, mpfWritePos+8, offsets, end)
+	seg, err := MakeMPFSegment(mpfTree)
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Seek(int64(mpfWritePos), io.SeekStart); err != nil {
+		return err
+	}
+	if err := WriteMarker(writer, APP0+2); err != nil {
+		return err
+	}
+	if err := WriteData(writer, seg); err != nil {
+		return err
+	}
+	return nil
+}
+
+
+
