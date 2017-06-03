@@ -97,43 +97,6 @@ func copyMPFImages(writer io.WriteSeeker, reader io.ReadSeeker, index *jseg.MPFI
 	return copy.newOffsets, nil
 }
 
-// Modify a MPF Tiff tree with new image offsets and sizes, given the
-// offsets and the end of file position.
-func setMPFImagePositions(mpfTree *tiff.IFDNode, mpfOffset uint32, offsets []uint32, end uint32) {
-	count := len(offsets)
-	lengths := make([]uint32, count)
-	for i := 0; i < count-1; i++ {
-		lengths[i] = offsets[i+1] - offsets[i]
-	}
-	lengths[count-1] = end - offsets[count-1]
-	indexWrite := jseg.MPFIndex{mpfOffset, offsets, lengths}
-	indexWrite.PutToTiff(mpfTree)
-}
-
-// Modify a MPF TIFF tree with new image offsets and sizes, then overwrite the
-// MPF data in the output stream.
-func rewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32, offsets []uint32) error {
-	end, err := writer.Seek(0, io.SeekCurrent)
-	if err != nil {
-		log.Fatal(err)
-	}
-	setMPFImagePositions(mpfTree, mpfWritePos+8, offsets, uint32(end))
-	newbuf, err := jseg.MakeMPFSegment(mpfTree)
-	if err != nil {
-		return err
-	}
-	if _, err := writer.Seek(int64(mpfWritePos), io.SeekStart); err != nil {
-		return err
-	}
-	if err := jseg.WriteMarker(writer, jseg.APP0+2); err != nil {
-		return err
-	}
-	if err := jseg.WriteData(writer, newbuf); err != nil {
-		return err
-	}
-	return nil
-}
-
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Printf("Usage: %s infile outfile\n", os.Args[0])
@@ -158,7 +121,11 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err = rewriteMPF(writer, mpfIndex.Tree, mpfIndex.APP2WritePos, newOffsets); err != nil {
+		end, err := writer.Seek(0, io.SeekCurrent)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err = jseg.RewriteMPF(writer, mpfIndex.Tree, mpfIndex.APP2WritePos, newOffsets, uint32(end)); err != nil {
 			log.Fatal(err)
 		}
 	}
