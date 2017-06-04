@@ -12,6 +12,6 @@ Example programs in the repository:
 
 jpegsegsprint prints the markers and segment lengths in a JPEG file, including multiple images encoded with Multi-Picture Format (MPF) where present.
 
-jpegsegscopy unpacks and repacks JPEG file, making a copy that should be functionally identical, although not necessarily byte identical. It also supports MPF.
+jpegsegscopy unpacks and repacks a JPEG file, making a copy that should be functionally identical, although not necessarily byte identical. It also supports MPF.
 
 jpegsegsstrip makes a copy of a JPEG file with all COM, APP and JPG segments removed. Anything after the first EOI marker, including MPF additional images, is also removed.
