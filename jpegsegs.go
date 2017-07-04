@@ -351,12 +351,8 @@ type Segment struct {
 
 // ReadSegments reads a JPEG stream up to and including the SOS marker and
 // returns a slice with marker and segment data.
-func ReadSegments(reader io.ReadSeeker) ([]Segment, error) {
+func ReadSegments(scanner *Scanner) ([]Segment, error) {
 	var segments = make([]Segment, 0, 20)
-	scanner, err := NewScanner(reader)
-	if err != nil {
-		return segments, err
-	}
 	for {
 		marker, buf, err := scanner.Scan()
 		if err != nil {
@@ -372,11 +368,7 @@ func ReadSegments(reader io.ReadSeeker) ([]Segment, error) {
 }
 
 // WriteSegments writes the given JPEG markers and segments to a stream.
-func WriteSegments(writer io.WriteSeeker, segments []Segment) error {
-	dumper, err := NewDumper(writer)
-	if err != nil {
-		return err
-	}
+func WriteSegments(dumper *Dumper, segments []Segment) error {
 	for i := range segments {
 		if err := dumper.Dump(segments[i].Marker, segments[i].Data); err != nil {
 			return err
