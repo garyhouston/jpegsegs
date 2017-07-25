@@ -734,6 +734,3 @@ func RewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32
 	}
 	return nil
 }
-
-
-

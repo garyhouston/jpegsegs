@@ -21,7 +21,7 @@ func main() {
 	defer reader.Close()
 	writer, err := os.Create(os.Args[2])
 	if err != nil {
-		log.Fatal(err)		
+		log.Fatal(err)
 	}
 	defer writer.Close()
 	scanner, err := jseg.NewScanner(reader)
