@@ -283,7 +283,7 @@ func NewScanner(reader io.ReadSeeker) (*Scanner, error) {
 }
 
 // Scan reads the next JPEG data segment. Returns a zero Marker when
-// image scan data is returned. Returns a nil slice if the marker as
+// image scan data is returned. Returns a nil slice if the marker has
 // no segment data (RST0-7, EOI or TEM.)  The data buffer is only
 // valid until Scan is called again.
 func (scanner *Scanner) Scan() (Marker, []byte, error) {
