@@ -133,7 +133,7 @@ func WriteMarker(writer io.Writer, marker Marker) error {
 	return err
 }
 
-// ReadData writes a JPEG data segment, which follows a marker.
+// ReadData reads a JPEG data segment, which follows a marker.
 func ReadData(reader io.Reader, buf []byte) ([]byte, error) {
 	buf = buf[0:2]
 	if _, err := io.ReadFull(reader, buf); err != nil {
