@@ -38,6 +38,8 @@ func scanImage(reader io.ReadSeeker, mpfProcessor jseg.MPFProcessor) error {
 				fmt.Printf(" and %d reset markers", resetCount)
 			}
 			fmt.Println()
+			dataCount = 0
+			resetCount = 0
 		}
 		if buf == nil {
 			fmt.Println(marker.Name())
