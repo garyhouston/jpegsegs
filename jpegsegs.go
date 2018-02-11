@@ -162,8 +162,8 @@ func WriteData(writer io.Writer, buf []byte) error {
 }
 
 // Check that a buffer is large enough and reallocate if needed.
-func checkbuf(buf []byte, reqsize uint32) []byte {
-	current := uint32(cap(buf))
+func checkbuf(buf []byte, reqsize int) []byte {
+	current := cap(buf)
 	if current < reqsize {
 		newsize := current * 2
 		if newsize < reqsize {
@@ -185,29 +185,29 @@ func ReadImageData(reader io.ReadSeeker, buf []byte) ([]byte, error) {
 	// would be slow. Can't take a buffered reader as a paramater,
 	// since two bytes of undo are needed to drop the marker that
 	// terminates the segment.
-	blocksize := uint32(10000)
+	blocksize := 10000
 	if buf == nil {
 		buf = make([]byte, blocksize)
 	} else {
 		buf = buf[:cap(buf)]
 	}
-	bufpos := uint32(0)
+	bufpos := 0
 	readpos, err := reader.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return nil, err
 	}
-	skipped := uint32(0)
+	skipped := 0
 NEXTBLOCK:
 	for {
 		if bufpos+blocksize < bufpos {
-			return nil, errors.New("Read ~4GB image data without finding a terminating marker")
+			return nil, errors.New("Integer overflow while searching for  marker in image data")
 		}
 		buf = checkbuf(buf, bufpos+blocksize)
 		count, err := reader.Read(buf[bufpos : bufpos+blocksize])
 		if err != nil {
 			return nil, err
 		}
-		end := bufpos + uint32(count)
+		end := bufpos + count
 	NEXTINDEX:
 		for {
 			ffpos := bytes.IndexByte(buf[bufpos:end], 0xFF)
@@ -215,7 +215,7 @@ NEXTBLOCK:
 				bufpos = end
 				continue NEXTBLOCK
 			}
-			bufpos += uint32(ffpos)
+			bufpos += ffpos
 			if bufpos == end-1 {
 				// 2nd byte is in the next block.
 				if _, err := reader.Seek(-1, io.SeekCurrent); err != nil {
