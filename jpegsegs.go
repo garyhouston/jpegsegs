@@ -9,23 +9,72 @@ import (
 )
 
 const (
-	TEM  = 0x01
-	SOF0 = 0xC0 // SOFn = SOF0+n, n = 0-15 excluding 4, 8 and 12
-	DHT  = 0xC4
-	JPG  = 0xC8
-	DAC  = 0xCC
-	RST0 = 0xD0 // RSTn = RST0+n, n = 0-7
-	SOI  = 0xD8
-	EOI  = 0xD9
-	SOS  = 0xDA
-	DQT  = 0xDB
-	DNL  = 0xDC
-	DRI  = 0xDD
-	DHP  = 0xDE
-	EXP  = 0xDF
-	APP0 = 0xE0 // APPn = APP0+n, n = 0-15
-	JPG0 = 0xF0 // JPGn = JPG0+n  n = 0-13
-	COM  = 0xFE
+	TEM   = 0x01
+	RES02 = 0x02
+	RESBF = 0xBF
+	SOF0  = 0xC0
+	SOF1  = 0xC1
+	SOF2  = 0xC2
+	SOF3  = 0xC3
+	DHT   = 0xC4
+	SOF5  = 0xC5
+	SOF6  = 0xC6
+	SOF7  = 0xC7
+	JPG   = 0xC8
+	SOF9  = 0xC9
+	SOF10 = 0xCA
+	SOF11 = 0xCB
+	DAC   = 0xCC
+	SOF13 = 0xCD
+	SOF14 = 0xCE
+	SOF15 = 0xCF
+	RST0  = 0xD0
+	RST1  = 0xD1
+	RST2  = 0xD2
+	RST3  = 0xD3
+	RST4  = 0xD4
+	RST5  = 0xD5
+	RST6  = 0xD6
+	RST7  = 0xD7
+	SOI   = 0xD8
+	EOI   = 0xD9
+	SOS   = 0xDA
+	DQT   = 0xDB
+	DNL   = 0xDC
+	DRI   = 0xDD
+	DHP   = 0xDE
+	EXP   = 0xDF
+	APP0  = 0xE0
+	APP1  = 0xE1
+	APP2  = 0xE2
+	APP3  = 0xE3
+	APP4  = 0xE4
+	APP5  = 0xE5
+	APP6  = 0xE6
+	APP7  = 0xE7
+	APP8  = 0xE8
+	APP9  = 0xE9
+	APP10 = 0xEA
+	APP11 = 0xEB
+	APP12 = 0xEC
+	APP13 = 0xED
+	APP14 = 0xEE
+	APP15 = 0xEF
+	JPG0  = 0xF0
+	JPG1  = 0xF1
+	JPG2  = 0xF2
+	JPG3  = 0xF3
+	JPG4  = 0xF4
+	JPG5  = 0xF5
+	JPG6  = 0xF6
+	JPG7  = 0xF7
+	JPG8  = 0xF8
+	JPG9  = 0xF9
+	JPG10 = 0xFA
+	JPG11 = 0xFB
+	JPG12 = 0xFC
+	JPG13 = 0xFD
+	COM   = 0xFE
 )
 
 // Marker represents a JPEG marker, which usually indicates the start of a
@@ -53,22 +102,22 @@ func init() {
 	markerNames[0xFF] = "FILL"
 
 	var i Marker
-	for i = 0x02; i <= 0xBF; i++ {
+	for i = RES02; i <= RESBF; i++ {
 		markerNames[i] = fmt.Sprintf("RES%.2X", i) // Reserved
 	}
-	for i = SOF0; i <= SOF0+0xF; i++ {
-		if i == SOF0+4 || i == SOF0+8 || i == SOF0+12 {
+	for i = SOF0; i <= SOF15; i++ {
+		if i == DHT || i == JPG || i == DAC {
 			continue
 		}
 		markerNames[i] = fmt.Sprintf("SOF%d", i-SOF0)
 	}
-	for i = RST0; i <= RST0+7; i++ {
+	for i = RST0; i <= RST7; i++ {
 		markerNames[i] = fmt.Sprintf("RST%d", i-RST0)
 	}
-	for i = APP0; i <= APP0+0xF; i++ {
+	for i = APP0; i <= APP15; i++ {
 		markerNames[i] = fmt.Sprintf("APP%d", i-APP0)
 	}
-	for i = JPG0; i <= JPG0+0xD; i++ {
+	for i = JPG0; i <= JPG13; i++ {
 		markerNames[i] = fmt.Sprintf("JPG%d", i-JPG0)
 	}
 }
@@ -303,8 +352,8 @@ func (scanner *Scanner) Scan() (Marker, []byte, error) {
 		if err != nil {
 			return 0, nil, err
 		}
-		scanner.imageData = (marker == SOS || marker >= RST0 && marker <= RST0+7)
-		if marker == EOI || marker == TEM || (marker >= RST0 && marker <= RST0+7) {
+		scanner.imageData = (marker == SOS || marker >= RST0 && marker <= RST7)
+		if marker == EOI || marker == TEM || (marker >= RST0 && marker <= RST7) {
 			return marker, nil, nil
 		}
 		segment, err := ReadData(scanner.reader, scanner.buf)
@@ -726,7 +775,7 @@ func RewriteMPF(writer io.WriteSeeker, mpfTree *tiff.IFDNode, mpfWritePos uint32
 	if _, err := writer.Seek(int64(mpfWritePos), io.SeekStart); err != nil {
 		return err
 	}
-	if err := WriteMarker(writer, APP0+2); err != nil {
+	if err := WriteMarker(writer, APP2); err != nil {
 		return err
 	}
 	if err := WriteData(writer, seg); err != nil {
